@@ -1,96 +1,102 @@
 # Architecture
 
-A minimal Flare Confidential Compute extension: two instructions (`SAY_HELLO`,
-`SAY_GOODBYE`) that echo a greeting and a per-caller counter. It exists to be
-copied, so the interesting part is the shape, not the logic.
+An extension runs in one image inside a TEE: tee-node and the extension, side by side.
+tee-node holds the TEE's key, talks to the outside, and signs every result; the extension holds the application's logic.
+The rules each side follows are in the [extension contract](extension-contract.md); this page shows how the pieces fit.
 
-## Components
+## The image
 
-| Piece | Where | Role |
-|---|---|---|
-| `InstructionSender` | `contracts/InstructionSender.sol` | on-chain entry point; emits instructions the TEE picks up |
-| Extension | `<language>/` | your handler — decodes the instruction, returns a response |
-| tee-node | pinned dep (`go/go.mod`) | runs inside the TEE, signs responses, talks to the proxy |
-| tee-proxy | `proxy/Dockerfile` | bridges TEE ↔ chain/FTDC; serves `/info` and `/action/result` |
-| redis | compose service | the proxy's queue |
-| Deployment tooling | `tools/cmd/*` | deploy, register, allow versions, query state |
-
-On-chain the extension is identified by an **extension id**, assigned by
-`TeeExtensionRegistry` and latched into the contract by `setExtensionId()`.
-
-## Request flow
-
-```
-caller → InstructionSender.sendInstruction()   (on-chain tx)
-       → tee-proxy picks up the instruction
-       → tee-node (inside the TEE) → your handler
-       → signed response → proxy → /action/result
+```mermaid
+flowchart LR
+  proxy[tee-proxy] <-->|"actions, results"| node
+  operator[operator] -->|"config, :5500"| node
+  subgraph image[the image]
+    launcher["launcher, PID 1, root"] -->|starts| node["tee-node, root"]
+    launcher -->|starts| ext["extension, 65532"]
+    node -->|"POST /action, GET /state<br/>:8889, loopback"| ext
+    ext -->|"sign, decrypt, POST /result<br/>:8888, loopback"| node
+  end
 ```
 
-The node signs every response against `CHAIN_ID`; a mismatch with the proxy's
-`chain_id` or the on-chain registry fails verification.
-
-## Language-neutral spine
-
-The repo root is language-agnostic. Each implementation is a sibling directory
-marked by a `language.env` manifest, and scripts glob `*/language.env` to discover
-them — there is no hardcoded list.
-
-| Directory | Layout |
-|---|---|
-| `go/` | `cmd/docker` (image entry), `cmd/start-tee` (local), `internal/extension` (handler), `internal/config` (op codes), `pkg/types` |
-| `python/` | `app/handlers.py` (handler), `app/config.py`, `base/` (server + encoding) |
-| `typescript/` | mirrors `python/` |
-
-`language.env` declares the Dockerfile plus the setup / build / test / run commands,
-so the scripts never need to know a language exists. See
-[languages.md](languages.md) and [extension-contract.md](extension-contract.md).
-
-Go links tee-node as a library; the other languages run it as a separate prebuilt
-binary and speak HTTP to it, which is why `build-node-base.sh` exists.
-
-## Op codes
-
-Instructions carry an op command hashed to `bytes32`. The Solidity side and the
-handler must agree on the string.
-
-| Op | Handler | Response |
+| Process | Runs as | Why |
 |---|---|---|
-| `SAY_HELLO` | `processSayHello` | `Greeting`, `GreetingNumber` |
-| `SAY_GOODBYE` | `processSayGoodbye` | `Farewell`, `FarewellNumber` |
+| the launcher | root, PID 1 | it starts the two others under different users |
+| tee-node | root | Confidential Space's attestation socket is root-only |
+| the extension | a non-root user (65532 in the template), no supplementary groups, no capabilities | it never needs the attestation socket or tee-node's memory |
 
-Defined in `go/internal/config/config.go` (and the equivalent per language). An
-unmatched op is rejected with the expected hash logged — the usual cause of a
-mismatch is editing one side only.
+Both children run with `no_new_privs`, so no program they start gains privileges.
+The launcher gives tee-node its whole environment, and the extension only `EXTENSION_PORT`, `SIGN_PORT`, `LOG_LEVEL`, `CHAIN_ID`, `EXTENSION_ID` and the names its `--env` lists.
+When either child exits, the launcher stops the other and exits non-zero; on SIGTERM it stops both and exits 0 once both obey.
+Confidential Space then reboots the VM or not, by its restart policy; either way the next tee-node has a new key and a new TEE identity.
 
-## State
+The extension's user can be set at all because Confidential Space starts the container with `CAP_SETUID` and `CAP_SETGID`.
+That is checked in its launcher's source, not yet on a production machine.
 
-In-memory counters, keyed by caller. Nothing is persisted: **the TEE has no durable
-storage**, so a relaunch resets counts and mints a new `teeId`. Real extensions
-that need state must encrypt and export it.
+## Ports
 
-## Entry points
+| Port | Listens | Reachable | For |
+|---|---|---|---|
+| 5500 | tee-node | from outside | configuring tee-node |
+| `SIGN_PORT`, 8888 | tee-node | loopback only | the extension's calls: sign or decrypt with the TEE's key or a wallet key it holds, post a result |
+| `EXTENSION_PORT`, 8889 | the extension | loopback only | tee-node's calls: `POST /action`, `GET /state` |
 
-| Script | Does |
-|---|---|
-| `use-chain.sh` | create + activate everything one chain needs (env, proxy toml, compose override) |
-| `chain-env.sh` | the chain table every script sources — chain ids, RPCs, `config/<chain>/` |
-| `pre-build.sh` | generate bindings, compile, deploy `InstructionSender`, register extension |
-| `start-services.sh` | build + start node/proxy/redis, sync the tunnel on testnets |
-| `post-build.sh` | allow TEE version, set governance, register the TEE machine |
-| `test.sh` | end-to-end round-trip through a running deployment |
-| `full-setup.sh` | all of the above in order |
-| `check-versions.sh` | fails the build when dependency pins drift or fall below the floor |
+tee-node reads its settings from the environment at start: the proxy URL, the initial owner, the extension ID, the chain ID and the governance.
+The operator sets them through the launch policy, which lists the variables an operator may set.
+Whoever reaches port 5500 can set the proxy URL at any time, and each of the others once, if the launch policy left it unset.
+Until the proxy URL is set, tee-node fetches nothing.
 
-## Version pinning
+## Two ways in
 
-`go/go.mod` is the single source of truth for the tee-node version;
-`scripts/lib/versions.sh` derives `TEE_NODE_REF` from it so non-Go images clone the
-same ref. `tools/go.mod` must match, and `check-versions.sh` enforces both that and
-the minimum version.
+tee-node pulls actions from tee-proxy's queues, calls the extension, signs the result, and posts it back to tee-proxy, where the caller reads it.
 
-## Where to look next
+```mermaid
+sequenceDiagram
+  participant caller
+  participant chain
+  participant proxy as tee-proxy
+  participant node as tee-node
+  participant ext as extension
+  alt instruction
+    caller->>chain: the extension's contract
+    chain->>proxy: the instruction
+    node->>proxy: fetch
+    note over node: checks the data providers' signatures and threshold
+  else direct action
+    caller->>proxy: POST /direct
+    node->>proxy: fetch
+  end
+  node->>ext: POST /action
+  ext-->>node: the result
+  node->>proxy: the signed result
+  caller->>proxy: read the result
+```
 
-[getting-started.md](getting-started.md) to run it ·
-[extension-guide.md](extension-guide.md) to write your own handler ·
-[deployment-steps.md](deployment-steps.md) for Coston2
+| | Instruction | Direct action |
+|---|---|---|
+| starts at | the extension's contract, which pays the fee | tee-proxy's `POST /direct`, if its operator enables it |
+| checked by tee-node | the data providers' signatures and threshold | only that its op type isn't a system one, `F_` |
+| who may send it | anyone the contract lets through | anyone holding tee-proxy's API key, or anyone if the key is optional: the extension authorizes it |
+| reaches the extension as | `instruction`, tag `threshold` | `direct`, tag `submit` |
+
+## A result's life
+
+An answer to `POST /action` must arrive within 2 s.
+Work that takes longer answers at once with status 2, pending, and posts the rest through the sign port's `POST /result`, which tee-node signs and forwards.
+
+```mermaid
+sequenceDiagram
+  participant node as tee-node
+  participant ext as extension
+  participant proxy as tee-proxy
+  node->>ext: POST /action
+  ext-->>node: status 2, pending
+  node->>proxy: pending
+  ext->>node: POST /result, status 4 and up: partial
+  node->>proxy: partial
+  ext->>node: POST /result, status 0 or 1: final
+  node->>proxy: final
+```
+
+tee-proxy keeps the highest status for each action, and a final result is never replaced.
+A restart in between leaves the action pending forever, so callers time out.
+The statuses and what tee-node signs are in the [extension contract](extension-contract.md#statuses).

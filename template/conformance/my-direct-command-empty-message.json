@@ -1,0 +1,12 @@
+{
+  "description": "refuses an empty message",
+  "channel": "direct",
+  "opType": "MY_EXTENSION",
+  "opCommand": "MY_DIRECT_COMMAND",
+  "message": "0x7b226d657373616765223a22227d",
+  "result": {
+    "status": 0,
+    "log": "error: message required",
+    "data": "0x"
+  }
+}

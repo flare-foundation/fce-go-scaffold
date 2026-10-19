@@ -1,51 +1,19 @@
-# Docs index
+# Docs
 
-Standard layout shared by every FCC extension example. Validate with
-`./scripts/check-docs.sh`.
+The [glossary](glossary.md) defines the terms these pages use.
 
-## Required — every extension has these
+In reading order:
 
-| Doc                                                      | Answers                                       |
-| -------------------------------------------------------- | --------------------------------------------- |
-| [getting-started.md](getting-started.md)                 | run it locally, end to end                    |
-| [deployment-steps.md](deployment-steps.md)               | deploy to Coston2 and operate it              |
-| [testing.md](testing.md)                                 | test suites and what they cover               |
-| [testing-against-coston2.md](testing-against-coston2.md) | test against a deployed extension             |
-| [architecture.md](architecture.md)                       | how this extension works                      |
-| [cloudflared.md](cloudflared.md)                         | expose a local proxy for testnet registration |
+| Page | What it covers |
+|---|---|
+| [Architecture](architecture.md) | how tee-node, the extension and the launcher share one image, and the two ways an action arrives |
+| [Assumptions](assumptions.md) | who can do what: the trust model, and the platform facts to design around |
+| [Rules](rules.md) | every must and must-not of an extension, each with what enforces it |
+| [Extension guide](extension-guide.md) | from the template to your own extension, in Go |
+| [Contracts](contracts.md) | the entrypoint contract: sending, fees, the owner, checking a TEE's signature |
+| [Direct actions](direct-actions.md) | actions that skip the chain: who sent them, replays, secrets |
+| [Testing](testing.md) | every test layer, and what to run before a change lands |
+| [Forking](fork.md) | what a fork changes and what it leaves, the optional renames, and merging upstream |
+| [Extension contract](extension-contract.md) | the wire rules between tee-node and an extension, in any language, and the conformance fixtures |
 
-`deployment-steps.md` must cover the platform-wide traps, because they are not
-obvious and every extension hits them:
-
-- the TEE key is in memory only — every relaunch mints a new identity, and the old
-  machine stays **active** and keeps receiving instructions
-- one-shot bindings (here `setExtensionId`) must be written **last**
-- the Confidential Space launch policy aborts on the first env var outside
-  `tee.launch_policy.allow_env_override`
-- deploy by **digest**, not tag — the code hash is registered on-chain
-- `SIMULATED_TEE=false` on real hardware
-
-## Scaffold — keep byte-identical across extensions
-
-This repo is the upstream for these — siblings copy them verbatim. The copies
-here carry extra multi-language notes siblings do not need; keep those, and keep
-everything else in sync:
-
-[extension-guide.md](extension-guide.md) ·
-[instruction-sender.md](instruction-sender.md) ·
-[manual-setup.md](manual-setup.md)
-
-`types-server.md` does not apply here — this repo has no types server.
-
-## Extension-specific
-
-This repo is the scaffold itself, so its specifics are about being copied:
-
-[languages.md](languages.md) — the multi-language layout, and adding your own ·
-[extension-contract.md](extension-contract.md) — the contract an implementation must satisfy
-
-## Style
-
-Written for testers, not authors. Short, plain, skimmable: tables over prose,
-runnable commands over description, and a symptom→cause table for failures. If a
-section does not change what someone types or decides, cut it.
+Outside `docs/`: [REPRODUCIBILITY.md](../REPRODUCIBILITY.md) on the image's hash, the [template](../template/README.md), and the examples: [direct](../examples/direct/README.md), [external-api](../examples/external-api/README.md) and [wallets](../examples/wallets/README.md).

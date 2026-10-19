@@ -1,286 +1,229 @@
-# Extension Container Contract
+# Extension contract
 
-**This document is normative.** Any container that satisfies it is a valid FCC extension, regardless of implementation language. The scaffold ships Go, Python and TypeScript implementations; all three are measured against this document, and `scripts/test-conformance.sh` enforces it mechanically.
+What an extension must do to work with tee-node, in any language.
 
-If you are adding a new language, this is the specification you are implementing. Nothing else in the repo needs to change.
+## Scope
 
----
+The rules hold for tee-node v0.0.29, the version the scaffold pins in `go.mod`.
+Limits and behaviour may change with a tee-node release; the scaffold re-checks them on every bump.
 
-## 1. Process topology
+Each rule is one of two kinds:
 
-Two shapes are equally valid. The contract is what is observable from *outside* the container; how you get there is your choice.
+- **Required**: tee-node or tee-proxy depends on it; breaking it breaks the extension, and `fce conformance` fails it.
+- **Convention**: the scaffold's library follows it, so every extension behaves alike; tee-node doesn't depend on it.
+  `fce conformance` fails an extension that breaks it, unless the developer turns on the i-know-what-im-doing mode; then it warns.
 
-**Single-process** — the extension embeds tee-node as a library and runs both in one binary. Only available to Go. This is what `go/Dockerfile` builds: `go/cmd/docker/main.go` calls `teeServer.StartServerExtension(configPort, signPort, extensionPort)` in a goroutine alongside the extension's own HTTP server. Produces the smallest, most reproducible image (distroless, static, single binary).
+The **Checked** column says whether the conformance runner checks the rule.
+Rules it can't check are for the author to follow.
 
-**Two-process** — a prebuilt tee-node `./cmd/extension` binary runs beside the extension runtime, joined so that the container dies if either child dies. This is what every non-Go language uses:
+## Process
 
-```dockerfile
-CMD ["/bin/bash", "-c", "/app/server & SERVER_PID=$!; <your-runtime> & EXT_PID=$!; wait -n $SERVER_PID $EXT_PID; kill -TERM $SERVER_PID $EXT_PID 2>/dev/null; exit 1"]
+The image runs two processes: tee-node and the extension.
+They talk over loopback, and neither port is reachable from outside.
+
+| Rule | Kind | Checked |
+|---|---|---|
+| The extension serves HTTP on `127.0.0.1:EXTENSION_PORT`. tee-node calls `http://localhost:EXTENSION_PORT`. | required (reachable there); loopback only is a convention | yes (reachable) |
+| The extension calls tee-node's sign port on `SIGN_PORT`, at `127.0.0.1`. | required (the port); `127.0.0.1` rather than a name is a convention | — |
+| `EXTENSION_PORT` and `SIGN_PORT` are parsed as tee-node parses them: a decimal number, not trimmed, from 1 to 65535, not `5500` (tee-node's config port), and not equal to each other. Unset or empty takes tee-node's defaults, `8889` and `8888`. Any other value fails startup. | convention | — |
+| tee-node may start listening after the extension: a refused connection to the sign port is retried. | convention | — |
+| On SIGTERM the extension stops and exits with code 0. | convention | yes |
+
+## Required by tee-node
+
+tee-node calls the extension on two endpoints only: `POST /action` and `GET /state`.
+
+| Rule | Checked |
+|---|---|
+| `POST /action` answers 200 with an `ActionResult` JSON object within 2 s, counted until tee-node has read the whole body. | yes |
+| Any other status code becomes a `status 0` result whose log is `extension error: unexpected status code: <code>, response: <body>`, so the body ends up public. | — |
+| An answer that takes longer than 2 s becomes a `status 3` result, which tee-node posts itself; the Go library answers a handler that runs past 1.5 s with a `status 0` failure first. | — |
+| The result echoes the action's `data.id` as `id` and its `data.submissionTag` as `submissionTag`. | yes |
+| `GET /state` answers 200 with a `TeeState` JSON object: `stateVersion` (bytes32) and `state` (bytes). Any other answer records the state as unavailable. | yes |
+
+### Statuses
+
+| Status | Meaning | Set by |
+|---|---|---|
+| `0` | failed; final | the extension, or tee-node on a broken answer |
+| `1` | succeeded; final | the extension |
+| `2` | pending: more results follow through the sign port's `/result` | the extension |
+| `3` | the extension missed tee-node's 2 s | tee-node only |
+| `4`–`255` | partial results of a pending action, in increasing order | the extension, through `/result` |
+
+tee-proxy keeps one result per action id and submission tag.
+A final result (`0` or `1`) is never replaced.
+A status of `2` or more is replaced only by a higher status, or by a final one.
+
+tee-node calls `POST /action` once per action, with no retry, and tee-proxy queues an action again only when delivering it failed.
+So an id arrives again only when the operator delivers it again, or when the data providers sign the same instruction twice.
+
+### What is signed
+
+tee-node signs `keccak256(keccak256(data) ‖ id ‖ keccak256(submissionTag) ‖ status)`, bound to the chain, before posting the result to tee-proxy.
+`log`, `opType`, `opCommand`, `additionalResultStatus` and `version` are not signed, so tee-proxy could change them.
+Everything a consumer relies on goes in `data`.
+
+### Messages
+
+| Channel | `data.type` | `data.submissionTag` | `data.message` |
+|---|---|---|---|
+| instruction | `instruction` | `threshold` | a `DataFixed` object; the payload is its `originalMessage` |
+| direct | `direct` | `submit`, unless the application adds its own | a `DirectInstruction` object: `opType`, `opCommand`, `message` |
+
+- **Instructions** come from the chain.
+  tee-node has already checked the data providers' signatures and the threshold, and the cosigners' against the set and threshold the instruction names.
+  That set is the contract's choice: an op that needs particular cosigners checks the instruction names them, as the wallets example checks a wallet's own.
+  It answers the instruction's `end` phase itself, and gives any other tag `status 0`, so the extension only ever sees `threshold`.
+  `DataFixed.instructionId` equals the action id.
+  tee-node doesn't remember instructions: the operator can deliver one again, or after a newer one, while its signing policy is the active one or the one before.
+  There is no sender field: a contract that needs the caller encodes `msg.sender` into the payload.
+- **Direct actions** come from tee-proxy's `POST /direct`, which an operator may enable, with or without an API key.
+  tee-node checks only that the op type doesn't start with `F_`, and that the submission tag isn't an instruction's, `threshold` or `end`; it forwards any other tag, and tee-proxy's `/direct` sets `submit`.
+  The extension authorizes direct actions itself, and keeps each one idempotent or protected against replay; see [direct actions](direct-actions.md).
+  The action id is random, made up by tee-proxy, which returns it to the poster: the result can be fetched only with it.
+
+### Encodings and limits
+
+- Op types and commands are UTF-8 names right-padded to 32 bytes.
+  Op types starting with `F_` are reserved for the system.
+  tee-node handles some itself and refuses the rest, on both channels, so none reaches the extension.
+- Bytes are `0x`-prefixed hex; empty bytes are `"0x"`; hashes are full width.
+- tee-node fetches each action with a 10 MiB cap, and cuts the `/state` response at 10 MiB.
+- An instruction's message is at most 100 KiB, a direct action's at most 10 MiB.
+  Payloads are hex inside JSON, so in raw bytes that's about 50 KiB from a contract, about 2.5 MiB for a direct action, and about 5 MiB of state.
+
+## Conventions
+
+| Rule | Checked |
+|---|---|
+| Every error the extension handles answers 200 with `status 0`, a log of `error: <message>` and empty `data`, with the id and submission tag echoed, so the result attaches to its action. | yes |
+| A body that isn't an action (invalid JSON, `null`, a zero id, over 10 MiB) answers 400: the extension can't echo the id, so tee-node builds the failed result itself. | yes (invalid JSON) |
+| Other paths answer 404, other methods 405. | yes |
+| Every answer carries all nine fields: `id`, `submissionTag`, `status`, `log`, `opType`, `opCommand`, `additionalResultStatus`, `version`, `data`. | yes |
+| Every 200 answer has Content-Type `application/json`. | yes |
+| `log` is `ok` (status 1), `pending` (2), `partial` (4–255) or `error: <message>` (0). It is public and unsigned, so it never contains secrets. | partly: the `error: ` prefix on refusals; fixtures pin the rest |
+| `version` is `1.0.0`: tee-node's result encoding version, not the extension's. | yes |
+| `additionalResultStatus` is empty: tee-node neither uses nor signs it for an extension. | yes |
+| Each op pair belongs to one channel, instructions or direct actions, never both; on the other channel it gets `status 0`. An op type may have commands on both. | yes (the fixtures' pairs) |
+| An op pair with no handler gets `status 0`. | yes |
+| An op type starting with `F_` gets `status 0`, before any handler, though tee-node refuses them first. | yes (`F_XRP` / `PAY`) |
+| A direct action carries `submit`, as tee-proxy's `/direct` sets it. This is offered, not required: an application may use its own direct tags if it adapts tee-proxy to match, both its `/direct` and its result query. The extension accepts `submit` and the tags it adds (in Go, `extension.WithDirectTags`), and answers any other direct tag with `status 0`. It never adds `threshold` or `end`, which `extension.WithDirectTags` ignores: they are the instructions' tags, and tee-proxy picks a direct action's id, so a direct result with one could pass as an instruction's; tee-node refuses them first. | partly: a fixture's `submissionTag` is accepted; each direct fixture, tagged `threshold`, is refused |
+| The extension's own payloads are decoded strictly; node-defined envelopes leniently, so a field a later tee-node adds is ignored. | yes (envelopes) |
+| A direct action is idempotent, so a second send at any later time changes nothing, or protected against replay: anyone who saw it can post it again. | no; a fixture's `again` pins what a second send answers |
+| An instruction is idempotent or protected against replay too, and numbered by its contract where order matters: the operator can deliver one again, or after a newer one. | no; a fixture's `again` pins what a second send answers |
+
+## Long-running results
+
+An action that needs more than 2 s answers `status 2` at once, with data if it has any, and continues in the background.
+It posts each further result to the sign port's `POST /result`, as a full `ActionResult` with the same id, submission tag and op pair:
+
+1. partial results with statuses from `4` up to `255`, each higher than the last;
+2. the final result, `1` or `0`.
+
+tee-node checks nothing in a posted result: it signs whatever it gets and forwards it to tee-proxy.
+
+| `/result` answers | Meaning |
+|---|---|
+| 200 | forwarded |
+| 400 | not a valid `ActionResult`; unknown fields are refused |
+| 500 | tee-node has no proxy URL yet, or couldn't sign |
+| 502 | forwarding failed; tee-node also posts an unsigned failure with a zero id, which attaches to no action |
+
+- Re-posting a result is safe: tee-proxy ignores a result that doesn't advance the stored one.
+- Posts may land out of order; tee-proxy keeps the highest.
+- A restart in the middle of a job leaves the action pending forever, so consumers time out pending results.
+- tee-proxy keeps instruction results for 14 days and direct-action results for 30 minutes by default, renewed on each post; the operator configures both.
+- tee-proxy refuses a result body over 25 MiB, measured as tee-node posts it: signed, with `data` hex-encoded.
+  tee-node uploads each result with a 2 s timeout, so the practical limit also depends on the link to tee-proxy.
+
+## Sign-port API
+
+tee-node serves these to the extension on `127.0.0.1:SIGN_PORT`, without authentication.
+Bodies are JSON.
+In `/sign` and `/decrypt` bodies, bytes are **base64**, not hex.
+`/result` takes an `ActionResult` encoded as in `/action` answers: bytes and hashes are `0x`-prefixed hex.
+
+| Endpoint | Request | Answer |
+|---|---|---|
+| `POST /sign` | `{"message"}` | `{"message", "signature"}`: the TEE key signs `keccak256(message)` with the Ethereum signed-message prefix; `V` is 0 or 1 |
+| `POST /decrypt` | `{"encryptedMessage"}` | `{"decryptedMessage"}`: ECIES on secp256k1, AES-128, SHA-256, with the TEE key |
+| `POST /result` | an `ActionResult` | see [Long-running results](#long-running-results) |
+| `GET /key-info/{walletId}/{keyId}` | | the key's existence proof: its type, signing algorithm and public key (64 bytes, X‖Y), and the wallet's admins and cosigners |
+| `POST /sign/{walletId}/{keyId}` | `{"message"}` | `{"message", "signature"}`: a wallet key signs by its algorithm, with no prefix; an EVM key signs `keccak256(message)`, `V` 0 or 1 |
+| `POST /decrypt/{walletId}/{keyId}` | `{"encryptedMessage"}` | `{"decryptedMessage"}`: ECIES with a wallet key; EVM and XRP keys only |
+
+- `/sign` uses the same signing domain as tee-node's own signatures.
+  Never let a user choose the bytes the TEE key signs.
+- Users encrypt to the TEE's public key, which tee-node publishes in its TEE info; `fce encrypt` does it.
+  A restarted TEE has a new key, so older ciphertexts can no longer be decrypted.
+- 400 means the node refused the input: an empty message, or a ciphertext it can't decrypt.
+  Its body may echo the input, so it never goes into a public log.
+- `walletId` is 32 bytes of hex, `keyId` a decimal; 404 means the TEE doesn't hold that key.
+- The wallet-key endpoints serve any key the TEE holds: who may use which wallet is for the extension and its contract to decide.
+
+## Conformance
+
+The runner, `fce conformance` from the tooling repo, checks an extension from the outside.
+Given an extension directory, it builds the Go binary as the image does and uses the directory's `conformance/` fixtures; after `--`, it runs any command, in any language:
+
+```bash
+fce conformance [-env KEY=VALUE]... <dir>...
+fce conformance [-fixtures <dir>] [-env KEY=VALUE]... -- <command> [args...]
 ```
 
-Use `/bin/bash`, not `/bin/sh`. Debian's `/bin/sh` is dash, which does not implement `wait -n`, and without it the container will not exit when a child dies.
-
-Neither shape is privileged. The conformance suite tests the contract, not the topology.
-
----
-
-## 2. HTTP surface the extension MUST serve
-
-On `$EXTENSION_PORT`, bound on all interfaces inside the container.
-
-### `POST /action`
-
-Request body is an `Action` (§4.1). Response is an `ActionResult` (§4.3) as JSON with status 200 whenever the action was routed to a handler — **including when the handler fails**. Handler failure is signalled by `ActionResult.status`, not by the HTTP status.
-
-| Condition | HTTP status | Body |
-| --- | --- | --- |
-| Routed to a handler (success or handler error) | 200 | `ActionResult` JSON |
-| Body is not valid JSON | 400 | error text or `{"error": ...}` |
-| `data.message` is not valid hex | 400 | error text |
-| `data.message` does not decode to a valid `DataFixed` | 400 | error text |
-| No handler registered for `(opType, opCommand)` | 501 | plain text containing `unsupported op type` |
-
-The 501 body is a human-readable diagnostic, not a fixed string — the status
-code is what is contractual. The Go implementation additionally names the
-received and expected identifiers, which is worth imitating.
-
-### `GET /state`
-
-No request body. Returns a `StateResponse` (§4.4) with status 200.
-
-### Routing rules
-
-| Request | HTTP status |
-| --- | --- |
-| `GET /action` | 405 |
-| `POST /state` | 405 |
-| Any other path | 404 |
-
----
-
-## 3. HTTP surface the extension MAY call
-
-tee-node exposes a signing/crypto API on `http://localhost:$SIGN_PORT`. The extension calls it; it is never exposed outside the container.
-
-### `POST /decrypt`
-
-Decrypts a payload that was encrypted to the TEE's public key. Because tee-node is Go and Go marshals `[]byte` as base64 in JSON, **the wire encoding here is base64, not hex** — this is the single most common porting mistake.
-
-Request:
-
-```json
-{ "encryptedMessage": "<base64>" }
-```
-
-Response:
-
-```json
-{ "decryptedMessage": "<base64>" }
-```
-
-The scaffold wraps this in each language's `base/node.*` module so extension authors never hand-roll it.
-
----
-
-## 4. Wire format
-
-Every field below is derived from the Go types that tee-node actually serializes. The Go type is given because it determines the JSON encoding, and getting the encoding wrong is silent — the node accepts the request and the result fails verification later.
-
-Encoding rules for the Go types involved:
-
-| Go type | JSON encoding |
-| --- | --- |
-| `common.Hash` | `"0x"` + 64 lowercase hex chars (32 bytes, always full width) |
-| `common.Address` | `"0x"` + 40 hex chars (20 bytes) |
-| `hexutil.Bytes` | `"0x"` + hex, variable length; empty/nil encodes as `"0x"` — **not** `null`, **not** `""` |
-| `uint8` / `uint32` / `uint64` | JSON number |
-| `string` | JSON string |
-
-**bytes32 identifiers** (`opType`, `opCommand`) are UTF-8 strings right-padded with zero bytes to 32 bytes, then hex-encoded. `"GREETING"` becomes `0x4752454554494e47000000000000000000000000000000000000000000000000`-style padding — 8 content bytes followed by 24 zero bytes. The empty string is 32 zero bytes, and it is meaningful: see §5.
-
-### 4.1 `Action` — request body of `POST /action`
-
-Source: `tee-node/pkg/types/actions.go`.
-
-| Field | Go type | JSON | Notes |
-| --- | --- | --- | --- |
-| `data` | `ActionData` | object | §4.2 |
-| `additionalVariableMessages` | `[]hexutil.Bytes` | array of hex strings | |
-| `timestamps` | `[]uint64` | array of numbers | |
-| `additionalActionData` | `hexutil.Bytes` | hex string | |
-| `signatures` | `[]hexutil.Bytes` | array of hex strings | |
-
-### 4.2 `ActionData` — the `data` field
-
-| Field | Go type | JSON | Notes |
-| --- | --- | --- | --- |
-| `id` | `common.Hash` | 32-byte hex | echoed back in the result |
-| `type` | `ActionType` (string) | `"instruction"` or `"direct"` | |
-| `submissionTag` | `SubmissionTag` (string) | `"threshold"`, `"end"` or `"submit"` | echoed back in the result |
-| `message` | `hexutil.Bytes` | hex string | **hex-encoded UTF-8 JSON** that decodes to a `DataFixed` (§4.3) |
-
-Note the double encoding on `message`: hex-decode it, then parse the resulting bytes as JSON.
-
-### 4.3 `DataFixed` — decoded from `ActionData.message`
-
-Source: `go-flare-common/pkg/tee/instruction/instruction.go`.
-
-| Field | Go type | JSON | Notes |
-| --- | --- | --- | --- |
-| `instructionId` | `common.Hash` | 32-byte hex | |
-| `teeId` | `common.Address` | 20-byte hex | |
-| `timestamp` | `uint64` | number | |
-| `rewardEpochId` | `uint32` | number | |
-| `opType` | `common.Hash` | 32-byte hex | bytes32 of the op-type string |
-| `opCommand` | `common.Hash` | 32-byte hex | bytes32 of the op-command string |
-| `cosigners` | `[]common.Address` | array of 20-byte hex | |
-| `cosignersThreshold` | `uint64` | number | |
-| `originalMessage` | `hexutil.Bytes` | hex string | **your payload** — the bytes your contract passed to `sendInstructions` |
-| `additionalFixedMessage` | `hexutil.Bytes` | hex string | |
-
-`originalMessage` is what a handler receives. Its interpretation is entirely up to the extension — the scaffold's `SAY_HELLO` treats it as UTF-8 JSON, `SAY_GOODBYE` treats it as ABI-encoded `(string,string)`.
-
-### 4.4 `ActionResult` — response body of `POST /action`
-
-Source: `tee-node/pkg/types/actions.go`.
-
-| Field | Go type | JSON | Notes |
-| --- | --- | --- | --- |
-| `id` | `common.Hash` | 32-byte hex | echo `action.data.id` |
-| `submissionTag` | `SubmissionTag` (string) | string | echo `action.data.submissionTag` |
-| `status` | `uint8` | number | §4.6 |
-| `log` | `string` | string | §4.6 |
-| `opType` | `common.Hash` | 32-byte hex | echo from `DataFixed` |
-| `opCommand` | `common.Hash` | 32-byte hex | echo from `DataFixed` |
-| `additionalResultStatus` | `hexutil.Bytes` | hex string | `"0x"` when unused |
-| `version` | **`string`** | **plain string** | see the warning below |
-| `data` | `hexutil.Bytes` | hex string | your response payload; `"0x"` when there is none |
-
-> **Every field is always present.** The Go struct carries no `omitempty` tags,
-> so `data` and `additionalResultStatus` marshal as `"0x"` rather than being
-> omitted, and `log` is always a string. An implementation that drops empty
-> fields produces a different JSON shape from the reference Go image.
-
-**`data` must be byte-exact across implementations.** `ActionResult.Hash()`
-computes `keccak256(data)` and that hash is signed, so serialization details
-matter: emit compact JSON with no whitespace, preserving field declaration
-order. Go's `encoding/json`, Python dicts and TypeScript object literals all do
-this naturally; the conformance fixtures compare the resulting hex exactly.
-
-> **`version` is a plain string, not bytes32.**
->
-> The Go declaration is `Version string` (`tee-node/pkg/types/actions.go:57`). Send `"0.1.0"`, not `"0x302e312e30000..."`.
->
-> This is easy to get wrong because `StateResponse.stateVersion` *is* bytes32 (§4.5) — the two are genuinely asymmetric. The `sign` repo's Python and TypeScript ports both hex-encode `ActionResult.version` and are wrong; do not copy them. `testdata/conformance/` pins the correct encoding.
-
-### 4.5 `StateResponse` — response body of `GET /state`
-
-| Field | Type | JSON | Notes |
-| --- | --- | --- | --- |
-| `stateVersion` | `common.Hash` | **32-byte hex** | bytes32 of the version string — asymmetric with `ActionResult.version` by design |
-| `state` | extension-defined | object | any JSON-serializable snapshot |
-
-### 4.6 `status` and `log`
-
-| `status` | Meaning | Required `log` |
-| --- | --- | --- |
-| `0` | Handler failed | `"error: <message>"` |
-| `1` | Handler succeeded | `"ok"` |
-| anything else | In progress | `"pending"` |
-
-`data` is only meaningful for `status == 1`.
-
----
-
-## 5. Handler dispatch
-
-An extension registers handlers against `(opType, opCommand)` pairs, both compared as bytes32.
-
-**Lookup order:** exact `(opType, opCommand)` match first; then `(opType, <empty bytes32>)` as a wildcard. Registering a handler with an empty `opCommand` makes it the default for every command under that op-type. No match at all is a 501.
-
-**Concurrency:** handler invocations are serialized — at most one runs at a time. `GET /state` is serialized against handlers too, so a state read never observes a half-applied mutation. Implementations may use a mutex (Go, Python) or a promise chain (TypeScript); what matters is the observable guarantee.
-
----
-
-## 6. Container requirements
-
-### Environment variables consumed
-
-| Variable | Meaning |
-| --- | --- |
-| `MODE` | `1` = simulated attestation (local dev), `0` = production attestation |
-| `CONFIG_PORT` | tee-node configuration endpoint (default `5501`) |
-| `SIGN_PORT` | tee-node signing/crypto endpoint the extension calls (default `7701`) |
-| `EXTENSION_PORT` | port the extension serves `/action` and `/state` on (default `7702`) |
-| `PROXY_URL` | extension proxy the node polls for actions |
-| `CHAIN_ID` | chain the node binds signatures to; must match the proxy and the chain |
-| `LOG_LEVEL` | node log level |
-| `INITIAL_OWNER` | extension owner address |
-| `GOVERNANCE_SIGNERS` | comma-separated governance signer addresses |
-| `GOVERNANCE_THRESHOLD` | governance threshold |
-
-An extension implementation itself only needs to read `EXTENSION_PORT` and `SIGN_PORT`; the rest are consumed by tee-node.
-
-### Ports
-
-All three are loopback-only: tee-node and the extension run in one container and
-call each other over `localhost`, and the container dials *out* to the proxy via
-`PROXY_URL`. Nothing external connects in.
-
-**Do not `EXPOSE` them.** `EXPOSE` documents a port as externally reachable and
-makes `docker run -P` publish it — and `SIGN_PORT` signs and decrypts with the
-TEE key with no authentication.
-
-### Launch policy label — required
-
-```dockerfile
-LABEL "tee.launch_policy.allow_env_override"="LOG_LEVEL,PROXY_URL,INITIAL_OWNER,EXTENSION_ID,CHAIN_URL,MODE"
-```
-
-The port variables are deliberately **absent**. Every name on this list can be
-changed at workload launch without changing the code hash, so listing
-`SIGN_PORT` would let an operator move the signing endpoint onto a port that is
-open on the VM, with nothing in review to catch it.
-
-Without this label, a GCP Confidential Space VM **rejects operator env overrides at attestation time** and whatever was baked into the image at build time is final. Every language image must carry an identical list — a mismatch produces a deployment that cannot be reconfigured, and the failure appears at attestation rather than at build.
-
-### User
-
-```dockerfile
-USER 0:0
-```
-
-Matches tee-node. The TEE itself is the isolation boundary, not in-container user separation.
-
----
-
-## 7. Reproducibility
-
-The container's code hash is what gets registered on-chain, so build determinism is a security property, not a nicety.
-
-Every language image must:
-
-- accept a `SOURCE_DATE_EPOCH` build arg and propagate it,
-- pin apt to `snapshot.debian.org` keyed on `SOURCE_DATE_EPOCH`,
-- install dependencies from a committed lockfile (`go.sum`, `package-lock.json`, pinned `requirements.txt`),
-- normalize mtimes as the final build step: `RUN find /app -exec touch -h -d @${SOURCE_DATE_EPOCH} {} +`
-
-Determinism is not equal across languages. Go on distroless is bit-for-bit reproducible across machines. Python wheels and `node_modules` trees embed build-host paths and npm-version-dependent layout, so those images target *same-machine* determinism only. See `REPRODUCIBILITY.md` for the honest per-language caveats.
-
-**tee-node version pinning.** Non-Go images build the tee-node `./cmd/extension` binary from source. The version must match the Go module pin in `go/go.mod`, or the node and the proxy will disagree on signature formats and surface confusing verification failures. That pin is frequently a Go *pseudo-version* (`v0.0.21-0.20260619120252-31fc839ae6d2`), whose last segment is an **abbreviated** commit SHA. Two obvious approaches both fail on it: `git clone --branch <sha>` resolves tags and branches only, and `git fetch --depth 1 origin <sha>` requires a full 40-char SHA plus server-side `uploadpack.allowAnySHA1InWant`, which GitHub rejects with `couldn't find remote ref`. Use a blobless partial clone, which fetches all refs cheaply and lets an abbreviated SHA resolve locally:
-
-```dockerfile
-RUN git clone --filter=blob:none https://github.com/flare-foundation/tee-node.git tee-node && cd tee-node && git checkout "${TEE_NODE_REF}"
-```
-
-`scripts/lib/versions.sh` derives `TEE_NODE_REF` from `go/go.mod`, and `scripts/check-versions.sh` fails the build if the pins drift apart.
-
----
-
-## 8. Adding a language
-
-1. Create `<language>/` with a `Dockerfile` producing an image that satisfies §2, §4, §6.
-2. Implement the framework layer (`base/`): HTTP server, wire types, bytes32 helpers, dispatch registry, serialization. Reuse `python/base/` or `typescript/src/base/` as a reference.
-3. Implement the example (`app/`): `GREETING`/`SAY_HELLO` and `GREETING`/`SAY_GOODBYE`, behaviourally identical to the other languages — `tools/cmd/run-test` asserts on the exact greeting strings and counters.
-4. Run `./scripts/test-conformance.sh <language>`. No chain, no registration, no proxy required.
-5. Set `LANGUAGE=<language>` in `.env` and run the normal flow. Nothing in `scripts/`, `tools/`, `contracts/` or `docker-compose.yaml` needs to change — language selection resolves by directory convention.
+1. It starts a fake sign port with a fixed test key, which signs, decrypts and records `/result` posts, and one wallet key: wallet `keccak256("fakenode wallet")`, key 0, an EVM key with no cosigners.
+2. It starts the command with `EXTENSION_PORT` and `SIGN_PORT` set to free loopback ports, and waits up to 10 s for `GET /state` to answer 200.
+3. It runs the checks below, waiting up to 10 s for the posts long-running fixtures expect.
+4. It sends SIGTERM and requires exit code 0 within 5 s.
+
+`-startup`, `-postwait` and `-shutdown` change those limits.
+The extension's output is printed only when something fails.
+
+### Fixtures
+
+Each `*.json` file in the fixtures directory is one golden case for one of the extension's ops; the Go package [`conformance/`](../conformance) reads and writes them:
+
+| Field | Meaning |
+|---|---|
+| `description` | what the case shows |
+| `channel` | `instruction` or `direct` |
+| `submissionTag` | optional, direct only: the tag the action arrives with; `submit` when absent |
+| `opType`, `opCommand` | the op pair, as names |
+| `message` | the payload, hex: an instruction's `originalMessage`, or a direct action's `message` |
+| `result` | the expected `status`, `log` and `data` |
+| `again` | optional, for an op that changes state: the `status`, `log` and `data` every later send of the same message gets; `result` when absent |
+| `posts` | for a long-running op, the expected `/result` posts, each with `status`, `log` and `data` |
+
+The runner builds the action around the payload, and checks the fields the extension doesn't choose itself: the echoed id and submission tag, the op pair, the version and an empty `additionalResultStatus`.
+Field order and whitespace don't matter; `data` must match byte for byte.
+Posts are compared in status order, partials then the final, since they may land out of order.
+The runner sends the fixtures in name order to one process, so a fixture may rely on the ones before it; numbered names keep that order visible.
+
+The runner refuses a fixtures directory that is missing or holds no fixture, and a fixture set that:
+
+- has a `status 2` result without posts, or posts after any other status;
+- has a `status 2` in `again`;
+- sets `submissionTag` on an instruction;
+- uses an op type starting with `F_`;
+- puts one op pair on both channels.
+
+### Checks
+
+| Check | Expects |
+|---|---|
+| `GET /state` | 200, JSON, with `stateVersion` and `state` |
+| each fixture | its result, and its posts |
+| each fixture with `again`, sent again | its `again` |
+| each fixture with an unknown field at every level | the same result, or its `again` |
+| each fixture's op pair on the other channel | a refusal |
+| each direct fixture, tagged `threshold` | a refusal |
+| an unknown op pair, on each channel | a refusal |
+| `F_XRP` / `PAY`, on each channel | a refusal |
+| an undecodable message, on each channel | a refusal |
+| a body that isn't an action | 400 |
+| `GET /action`, `POST /state`, an unknown path | 405, 405, 404 |
+| posts | exactly the posts the fixtures expect, in status order, once none has arrived for 200 ms |
+
+A refusal is 200 with `status 0`, a log starting with `error: `, and empty `data`.
+Every `/action` answer must arrive within 2 s, be JSON, and carry all nine fields.

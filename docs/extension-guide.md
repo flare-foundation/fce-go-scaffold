@@ -1,395 +1,214 @@
-# Extension Development Guide
+# Extension guide
 
-This guide explains how the extension scaffold works and how to implement your own logic.
+From the template to your own extension, in Go.
+The wire rules every extension follows, in any language, are in [extension-contract.md](extension-contract.md).
 
-> **This guide's code examples are Go.** The scaffold also ships Python (`python/`) and TypeScript (`typescript/`) implementations of the same extension, selected with `LANGUAGE` in `.env`. The architecture, data flow, op-type matching and 4-step handler pattern described here are identical in all three — only the syntax differs. Where this guide says `go/internal/config/config.go`, the equivalents are `python/app/config.py` and `typescript/src/app/config.ts`; for `go/internal/extension/extension.go`, they are `python/app/handlers.py` and `typescript/src/app/handlers.ts`.
->
-> For the language-independent specification of the HTTP surface, wire format and container requirements — including what to implement if you are adding a fourth language — see [extension-contract.md](extension-contract.md).
+[contracts.md](contracts.md) covers the contract, and [rules.md](rules.md) lists every rule with what enforces it.
 
-## How an Extension Works
+## 1. Start from the template
 
-An extension is an HTTP server that runs inside a Trusted Execution Environment (TEE). It receives instructions from the blockchain, processes them, and returns results. The full lifecycle:
+Fork the scaffold, then work in [`template/`](../template):
 
-```
-1. User calls your Solidity contract (on-chain)
-2. Contract emits a TeeInstructionsSent event via TeeExtensionRegistry
-3. TEE proxy picks up the instruction from the chain
-4. TEE node fetches the instruction from the proxy
-5. TEE node forwards it as POST /action to your extension server
-6. Your extension processes the action and returns a result
-7. TEE node sends the result back to the proxy
-8. Caller polls the proxy for the result
-```
+- `template/cmd/extension/main.go`: the entrypoint, about 15 lines of explicit wiring.
+- `template/internal/app`: your code: op constants, handlers, state, and their tests.
+- `template/conformance/`: golden fixtures for your ops.
+- `template/contracts/`: the entrypoint contract, which sends your instructions; see [contracts.md](contracts.md).
 
-Your extension controls steps 1 (the contract) and 6 (the action handler). Everything else is handled by the TEE infrastructure.
+Change the template; leave the shared parts alone: `pkg/`, `sol/`, `conformance/`, `internal/`, `launcher/`, `docs/`, `fce-version`, `REPRODUCIBILITY.md`, the `Makefile`, `.golangci.yml`, `renovate.json5`, and the agent files.
+A fork gets fixes to them by merging upstream, and local edits there make those merges conflict.
+If you need a change in a shared part, propose it upstream.
 
-## Architecture Overview
+Renaming the module path is optional: imports of `pkg/` resolve inside the module, so a fork builds without it.
+[Forking](fork.md) shows the renames, and how to merge upstream.
 
-```
-┌─────────────────────────────────────────────────────┐
-│  YOUR CODE (what you customize)                     │
-│                                                     │
-│  contracts/InstructionSender.sol   On-chain entry   │
-│  <lang> config                     OPType constants │
-│  <lang> handlers                   Action handlers  │
-│  tools/cmd/run-test/main.go        E2E tests        │
-└─────────────────────────────────────────────────────┘
+## 2. Add an op
 
-┌─────────────────────────────────────────────────────┐
-│  INFRASTRUCTURE (do not modify)                     │
-│                                                     │
-│  <lang> framework layer            Server, routing  │
-│  buildResult() / envelope          Result builder   │
-│  scripts/*                         Build/deploy     │
-│  tools/cmd/deploy-contract/        Deployment       │
-│  tools/cmd/register-*/             Registration     │
-└─────────────────────────────────────────────────────┘
-```
+An op is a pair: an op type, which groups commands, and an op command, a verb.
+An extension may have several op types.
+Each pair belongs to one channel, instructions or direct actions, never both.
 
-## File map by language
+| | Instruction | Direct action |
+|---|---|---|
+| Sent by | your contract, on chain | a client, to tee-proxy's `POST /direct` |
+| Checked by tee-node | the data providers' signatures and threshold | only that its op type isn't a system one, `F_` |
+| Who may send it | decided on chain | anyone the proxy lets in; your handler authorizes |
+| Payload | ABI, as the contract encodes it | your choice; JSON in the template |
 
-The guide below uses Go for its examples. These are the equivalents:
-
-| Role | Go | Python | TypeScript |
-|---|---|---|---|
-| Op constants | `go/internal/config/config.go` | `python/app/config.py` | `typescript/src/app/config.ts` |
-| Handlers | `go/internal/extension/extension.go` | `python/app/handlers.py` | `typescript/src/app/handlers.ts` |
-| Request/response types | `go/pkg/types/types.go` | declared inline in handlers | declared inline in handlers |
-| ABI decoding | `go/pkg/types/types.go` (`abi.Argument`) | `python/app/abi.py` | `typescript/src/app/abi.ts` |
-| Framework (don't touch) | `internal/extension/utils.go`, `pkg/server/` | `python/base/` | `typescript/src/base/` |
-| Entry point | `go/cmd/main.go` | `python/main.py` | `typescript/src/main.ts` |
-| Shared, language-neutral | `contracts/`, `scripts/`, `tools/`, `config/` | — | — |
-
-Each language directory has its own README with the specifics: [go/](../go/README.md), [python/](../python/README.md), [typescript/](../typescript/README.md).
-
-## The Files You Modify
-
-### 1. `go/internal/config/config.go` — Operation Type Constants
-
-This file defines the string constants for your operation types. Each constant is hashed to `bytes32` at runtime using `teeutils.ToHash()` and compared against the `OPType` field in incoming actions.
-
-**What to do:** Add one `OPType` constant per logical operation group your extension supports, and one `OPCommand` constant per individual command within that group. The scaffold defines:
+Add the constants, write the handler, and register it:
 
 ```go
-const (
-    OPTypeGreeting     = "GREETING"
-    OPCommandSayHello  = "SAY_HELLO"
-    OPCommandSayGoodbye = "SAY_GOODBYE"
-)
+const OPCommandGetPrice op.Command = "GET_PRICE" // instructions only
+
+func Register(s *extension.Server) {
+	// …
+	s.RegisterInstructionHandler(OPTypeMyExtension, OPCommandGetPrice, getPrice)
+}
+
+// abi.encode(string pair), as the contract builds it
+var getPriceArgs = abi.Arguments{{Name: "pair", Type: abiType("string")}}
+
+func getPrice(ctx context.Context, i *instruction.DataFixed) ([]byte, extension.Run, error) {
+	var pair string
+	if err := payload.DecodeABI(getPriceArgs, i.OriginalMessage, &pair); err != nil {
+		return nil, nil, extension.PublicError("invalid payload", err)
+	}
+	// …
+	return result, nil, nil
+}
 ```
 
-These strings must exactly match the `bytes32` constants in your Solidity contract:
+- Registration panics on a mistake: a pair registered twice, an op type starting with `F_`, or a name over 32 bytes.
+- An instruction's payload is `i.OriginalMessage`; `i` also carries the instruction id, the TEE id and the cosigners.
+  There is no sender: if you need the caller, your contract encodes `msg.sender` into the payload.
+  tee-node doesn't remember instructions: the operator can deliver one again, or after a newer one, while its signing policy is the active one or the one before.
+  So make it idempotent, or refuse replays; where order matters, have the contract number them, as the [direct example](../examples/direct/README.md)'s `setAdmin` does.
+- A direct action's payload is `d.Message`.
+  Anyone the proxy lets in can send it, and the handler can't tell who did, so check an authorization the payload carries.
+  Anyone who saw it can send it again, so make it idempotent, or refuse replays.
+  [Direct actions](direct-actions.md) and the [direct example](../examples/direct/README.md) show how.
+- A direct action arrives with the `submit` tag, which tee-proxy's `/direct` sets.
+  If you adapt the proxy to send your own tags, accept them with `extension.WithDirectTags` in `main.go`, and give the fixtures a `submissionTag`; results echo the tag, handlers don't see it.
+  `threshold` and `end` stay the instructions' tags: `extension.WithDirectTags` ignores them.
+- Decode your own payloads strictly, with [`pkg/payload`](../pkg/payload).
+  `payload.DecodeABI` accepts only the canonical encoding: go-ethereum's decoder alone accepts trailing bytes, dirty padding, out-of-range integers, and offsets that point anywhere, even at one region many times over, which can exhaust memory.
+  `payload.DecodeJSON` refuses unknown fields and anything after the value.
+  Their errors never quote the payload.
+- The library doesn't serialize calls.
+  An instruction, a direct action and `GET /state` can run at the same time; synchronize shared state yourself.
+  Time spent waiting for your own locks counts against the deadline.
+  Two copies of one action can run at once too, so check a replay counter and record it, with the change it guards, under one lock, as the direct example's `ROTATE` does.
+- Check everything before the first write: a refused action changes nothing, not even what `GET /state` reports, or whoever can send one moves your state.
 
-```solidity
-bytes32 constant OP_TYPE_GREETING      = bytes32("GREETING");
-bytes32 constant OP_COMMAND_SAY_HELLO  = bytes32("SAY_HELLO");
-bytes32 constant OP_COMMAND_SAY_GOODBYE = bytes32("SAY_GOODBYE");
-```
+## 3. Errors
 
-### 2. `go/pkg/types/types.go` — Request and Response Types
-
-This file defines the JSON structures for your extension's inputs and outputs.
-
-**Request types** are decoded from the instruction's `OriginalMessage` field. This is the payload the user sent through your Solidity contract.
-
-**Response types** are what your extension returns in `ActionResult.Data`. The caller receives this when polling the proxy.
-
-**State type** represents your extension's observable state, returned by `GET /state`. The TEE infrastructure uses this for state synchronization.
-
-The scaffold defines:
+A handler's error becomes the result's log, `error: <text>`, which is public and unsigned.
+Wrap anything that could carry a secret, such as decrypted data, keys, or an outside service's answer:
 
 ```go
-// What the user sends for a SAY_HELLO command
-type SayHelloRequest struct {
-    Name string `json:"name"`
-}
-
-// What your extension returns for SAY_HELLO
-type SayHelloResponse struct {
-    Greeting       string `json:"greeting"`
-    GreetingNumber int    `json:"greetingNumber"`
-}
-
-// What the user sends for a SAY_GOODBYE command (ABI-encoded, not JSON)
-type SayGoodbyeRequest struct {
-    Name   string `json:"name"`
-    Reason string `json:"reason"`
-}
-
-// What your extension returns for SAY_GOODBYE
-type SayGoodbyeResponse struct {
-    Farewell       string `json:"farewell"`
-    FarewellNumber int    `json:"farewellNumber"`
-}
-
-// Your extension's cumulative state
-type State struct {
-    GreetingCount int    `json:"greetingCount"`
-    LastGreeting  string `json:"lastGreeting"`
-    FarewellCount int    `json:"farewellCount"`
-    LastFarewell  string `json:"lastFarewell"`
-}
+return nil, nil, extension.PublicError("invalid payload", err)
 ```
 
-### 3. `go/internal/extension/extension.go` — Action Handlers
+Only `invalid payload` reaches the log; `err` stays available through `errors.Is` and `errors.As`.
+The library's own errors never echo payload bytes.
+Don't write secrets to stdout or stderr either: on a debug image or a test machine, the operator reads them.
 
-This is the main file. It contains:
+## 4. Fast or long-running
 
-- **Extension struct** — your in-memory state fields
-- **processAction()** — routes incoming actions to handlers based on OPType
-- **Your handler functions** — the actual business logic
+A handler has `extension.HandlerTimeout`, 1.5 s, to answer; tee-node waits 2 s in all.
+After that the library answers `status 0` with `error: deadline exceeded`, and a result the handler returns later is lost.
+Honour `ctx`, so a late handler stops instead of changing state nobody will hear about.
 
-#### The Extension Struct
+The handler decides per action:
 
-Add fields to hold your extension's state. Always protect state access with the `mu` mutex. The scaffold tracks greeting count and the last greeting sent:
+| It returns | The action gets |
+|---|---|
+| an error | `status 0` at once; for example, a failed check |
+| data | `status 1` at once; for example, a cached answer |
+| data and a `Run` | `status 2` at once, then the `Run` continues in the background |
 
 ```go
-type Extension struct {
-    mu     sync.RWMutex
-    Server *http.Server
-
-    greetingCount int
-    lastGreeting  string
-    farewellCount int
-    lastFarewell  string
-}
+return []byte("accepted"), func(ctx context.Context, p *extension.Progress) ([]byte, error) {
+	for _, part := range parts {
+		if err := p.Post(ctx, encode(part)); err != nil { // status 4, 5, …
+			return nil, err
+		}
+	}
+	return final, nil // status 1, or 0 with an error
+}, nil
 ```
 
-#### processAction() — The Router
+- `p.Post` posts a partial result and waits until tee-node takes it.
+  Statuses end at 255, so a job has 252 partials.
+  To keep working while a post is in flight, call `p.Post` from your own goroutine; statuses follow call order.
+- Long-running mode needs the sign port: `main.go` passes `extension.WithSignPort`.
+- These defaults are yours to set, in `main.go`:
+  - `extension.WithPostWindow`: how long each post retries before the result is dropped and logged; one minute by default.
+  - `extension.WithMaxResultSize`: the largest result tee-node may post; 10 MiB by default, measured as tee-node posts it, signed with `data` hex-encoded.
+    A larger answer or final result becomes `status 0`, and a larger partial isn't posted.
+    tee-proxy refuses more than 25 MiB.
+- The library doesn't limit how many jobs run at once; bound them yourself if you need to.
+- Nor does it limit how long a job runs: bound it yourself, with `context.WithTimeout` on the `Run`'s context, and return the context's error as the failure.
+  The external-api example bounds each source it fetches this way.
+- Jobs stop when the server stops.
+  A restart in the middle of a job leaves the action pending forever, so consumers must time out pending results.
+- A panic in a `Run` becomes a final `status 0`; a panic in a goroutine you start yourself ends the process.
+- The [external-api example](../examples/external-api/README.md) works this way: it fetches from three APIs in the background, posting each answer as a partial result.
 
-This function receives every action and routes it. Add a `case` for each operation type. Within a type, a sub-router (e.g. `processGreeting`) dispatches on `OPCommand`:
+## 5. State
+
+`GET /state` reports the extension's state, which tee-node includes in its signed TEE info.
+Without a state function the library serves the zero state: a zero `stateVersion` and no bytes.
 
 ```go
-func (e *Extension) processAction(action teetypes.Action) (int, []byte) {
-    dataFixed, err := processorutils.Parse[instruction.DataFixed](action.Data.Message)
-    if err != nil {
-        return http.StatusBadRequest, []byte(fmt.Sprintf("decoding fixed data: %v", err))
-    }
-
-    switch {
-    case dataFixed.OPType == teeutils.ToHash(config.OPTypeGreeting):
-        ar := e.processGreeting(action, dataFixed)
-        b, _ := json.Marshal(ar)
-        return http.StatusOK, b
-
-    default:
-        return http.StatusNotImplemented, []byte("unsupported op type")
-    }
-}
-
-func (e *Extension) processGreeting(action teetypes.Action, df *instruction.DataFixed) teetypes.ActionResult {
-    switch {
-    case df.OPCommand == teeutils.ToHash(config.OPCommandSayHello):
-        return e.processSayHello(action, df)
-    case df.OPCommand == teeutils.ToHash(config.OPCommandSayGoodbye):
-        return e.processSayGoodbye(action, df)
-    default:
-        return buildResult(action, df, nil, 0, fmt.Errorf("unsupported op command"))
-    }
-}
+s.RegisterStateFunc(func(ctx context.Context) (common.Hash, []byte, error) {
+	return stateVersion, encodedState, nil
+})
 ```
 
-#### Handler Functions
+- You choose the encoding of the bytes; `stateVersion` names it.
+- The registry accepts a non-empty state only from an extension with a registered state verifier contract.
+  At each availability check the verifier decides whether the machine may stay in production; a machine whose state it refuses can be suspended by anyone.
+  The [direct example](../examples/direct/README.md) reports the admin its contract set, and the contract, as the verifier, checks it.
+- State lives in memory: a restart wipes it, and each machine has its own.
+- The state function has the same deadline as a handler, and the response is capped at 10 MiB.
 
-Each handler follows the same 4-step pattern. Here's the scaffold's `processSayHello` (a command under the `GREETING` operation type):
+## 6. The TEE key and wallet keys
+
+[`pkg/node`](../pkg/node) calls tee-node's sign port:
 
 ```go
-func (e *Extension) processSayHello(action teetypes.Action, df *instruction.DataFixed) teetypes.ActionResult {
-    // 1. Decode the incoming message
-    var req types.SayHelloRequest
-    dec := json.NewDecoder(bytes.NewReader(df.OriginalMessage))
-    dec.DisallowUnknownFields()
-    err := dec.Decode(&req)
-    if err != nil {
-        return buildResult(action, df, nil, 0, fmt.Errorf("decoding request: %w", err))
-    }
-
-    // 2. Validate
-    if req.Name == "" {
-        return buildResult(action, df, nil, 0, fmt.Errorf("name must not be empty"))
-    }
-
-    // 3. Execute business logic
-    e.mu.Lock()
-    e.greetingCount++
-    greetingNumber := e.greetingCount
-    greeting := fmt.Sprintf("Hello, %s! Welcome to Flare Confidential Compute.", req.Name)
-    e.lastGreeting = greeting
-    e.mu.Unlock()
-
-    // 4. Build response
-    resp := types.SayHelloResponse{
-        Greeting:       greeting,
-        GreetingNumber: greetingNumber,
-    }
-    data, _ := json.Marshal(resp)
-
-    return buildResult(action, df, data, 1, nil)
-}
+tee := node.New(env.SignPort)
+sig, err := tee.SignTEE(ctx, msg)          // EIP-191 over keccak256(msg)
+plain, err := tee.Decrypt(ctx, ciphertext) // ECIES with the TEE key
+addr, err := tee.TEEAddress(ctx)           // the teeId; once, at startup
 ```
 
-The `processSayGoodbye` handler follows the same 4-step pattern. It decodes its request using ABI decoding via `structs.DecodeTo` rather than plain JSON:
+- `SignTEE` signs in the same domain as tee-node's own signatures.
+  Never let a user choose the bytes it signs: build the message yourself, in a format only your extension uses.
+  Encode it unambiguously, with `abi.encode`, never by concatenating variable-length fields, and hash bytes as received, never a re-encoding.
+  The [external-api example](../examples/external-api/README.md) signs its price this way, for its contract to check.
+- Users encrypt to the TEE's public key, which tee-node publishes in its TEE info.
+  The [direct example](../examples/direct/README.md) takes such input both ways: the admin's secrets as direct actions, users' bids through its contract.
+  A ciphertext is as long as its plaintext, and public: give such input a fixed length, padding what varies, as the direct example's bids do.
+  A restarted TEE has a new key, so older ciphertexts can no longer be decrypted.
+- A call retries while tee-node isn't listening yet, until `ctx` ends.
+- `node.ErrBadRequest` means tee-node refused the input, for example a ciphertext it can't decrypt.
+
+The wallet keys the TEE holds are reached the same way:
 
 ```go
-func (e *Extension) processSayGoodbye(action teetypes.Action, df *instruction.DataFixed) teetypes.ActionResult {
-    // 1. Decode the incoming message (ABI-encoded)
-    var req types.SayGoodbyeRequest
-    if err := structs.DecodeTo(types.SayGoodbyeMessageArg, df.OriginalMessage, &req); err != nil {
-        return buildResult(action, df, nil, 0, fmt.Errorf("decoding request: %w", err))
-    }
-
-    // 2. Validate
-    if req.Name == "" {
-        return buildResult(action, df, nil, 0, fmt.Errorf("name must not be empty"))
-    }
-
-    // 3. Execute business logic
-    e.mu.Lock()
-    e.farewellCount++
-    farewellNumber := e.farewellCount
-    farewell := fmt.Sprintf("Goodbye, %s! Reason: %s", req.Name, req.Reason)
-    e.lastFarewell = farewell
-    e.mu.Unlock()
-
-    // 4. Build response
-    resp := types.SayGoodbyeResponse{
-        Farewell:       farewell,
-        FarewellNumber: farewellNumber,
-    }
-    data, _ := json.Marshal(resp)
-
-    return buildResult(action, df, data, 1, nil)
-}
+info, err := tee.KeyInfo(ctx, walletID, keyID)                     // its type, algorithm and public key, the wallet's cosigners
+sig, err := tee.SignWallet(ctx, walletID, keyID, msg)              // by the key's algorithm, no prefix
+plain, err := tee.DecryptWallet(ctx, walletID, keyID, ciphertext) // ECIES with the wallet key
 ```
 
-**`buildResult` parameters:**
-- `status = 0` → error. The `err` parameter is logged.
-- `status = 1` → success. The `data` parameter is returned to the caller.
+- tee-node generates the keys and keeps them; the extension learns a wallet's id and key id only from its payloads.
+- tee-node signs with any key the TEE holds, and checks only an instruction's own cosigners.
+  So the contract decides who may use which wallet, and the extension checks the key's type and the instruction's cosigners against the wallet's.
+  The [wallets example](../examples/wallets/README.md) signs EVM transactions this way.
+- `node.ErrNotFound` means the TEE doesn't hold that key.
 
-### 4. `contracts/InstructionSender.sol` — On-Chain Entry Point
+## 7. Testing
 
-This contract is the only address allowed to submit instructions to your extension. You define `bytes32` constants for each operation type (matching your Go constants) and add one send function per operation type. After modifying, run `./scripts/generate-bindings.sh` to regenerate Go bindings.
-
-See the **[InstructionSender Contract Guide](instruction-sender.md)** for a full walkthrough and examples.
-
-### 5. `tools/cmd/run-test/main.go` — E2E Tests
-
-The test runner sends instructions through the full pipeline (contract → TEE → proxy) and verifies results. You define test payloads, send them, and assert on your response fields.
-
-See the **[Testing Guide](testing.md)** for details on writing and running tests.
-
-## How the Pieces Connect
-
-The critical link between your Solidity contract and Go code is the **OPType + OPCommand pair**. Both must be identical in three places each:
-
-| What | Solidity | Go config | Go router |
-|------|----------|-----------|-----------|
-| Operation type | `OP_TYPE_GREETING = bytes32("GREETING")` | `OPTypeGreeting = "GREETING"` | `dataFixed.OPType == teeutils.ToHash(config.OPTypeGreeting)` |
-| Hello command | `OP_COMMAND_SAY_HELLO = bytes32("SAY_HELLO")` | `OPCommandSayHello = "SAY_HELLO"` | `df.OPCommand == teeutils.ToHash(config.OPCommandSayHello)` |
-| Goodbye command | `OP_COMMAND_SAY_GOODBYE = bytes32("SAY_GOODBYE")` | `OPCommandSayGoodbye = "SAY_GOODBYE"` | `df.OPCommand == teeutils.ToHash(config.OPCommandSayGoodbye)` |
-
-If the OPType doesn't match, the action falls through to `default` in `processAction` and returns "unsupported op type". If the OPCommand doesn't match, the action falls through to `default` in the sub-router (e.g. `processGreeting`) and returns "unsupported op command".
-
-## Data Flow Through the Extension
-
-```
-Solidity contract
-    │
-    │  _message (raw bytes, JSON or ABI-encoded)
-    ▼
-TeeExtensionRegistry.sendInstructions()
-    │
-    │  wraps into DataFixed{OPType, OPCommand, OriginalMessage}
-    ▼
-TEE node → POST /action → actionHandler()
-    │
-    │  decodes teetypes.Action from request body
-    ▼
-processAction()
-    │
-    │  parses DataFixed from action.Data.Message
-    │  routes based on dataFixed.OPType
-    │
-    ├─ OPType == GREETING ──▶ processGreeting()
-    │                              │
-    │                              │  routes based on df.OPCommand
-    │                              │
-    │                              ├─ OPCommand == SAY_HELLO ──▶ processSayHello()
-    │                              │      decodes SayHelloRequest (JSON)
-    │                              │      increments greetingCount
-    │                              │      returns SayHelloResponse
-    │                              │
-    │                              └─ OPCommand == SAY_GOODBYE ─▶ processSayGoodbye()
-    │                                     decodes SayGoodbyeRequest (ABI via structs.DecodeTo)
-    │                                     increments farewellCount
-    │                                     returns SayGoodbyeResponse
-    │
-    └─ default ──▶ "unsupported op type"
-    ▼
-buildResult() → JSON response → TEE node → proxy → caller
+```bash
+go test ./template/...                    # handler tests, and the fixtures are current
+go test ./template/internal/app -update   # rewrite the fixtures after changing them
+make lint test                            # the linters, and the Go and forge tests
+fce conformance ./template                # build the binary and check it from the outside
 ```
 
-Key types in the flow:
-- `teetypes.Action` — the envelope from the TEE node (contains `Data.Message`, `Data.ID`, etc.)
-- `instruction.DataFixed` — parsed from `Action.Data.Message` (contains `OPType`, `OPCommand`, `OriginalMessage`)
-- `df.OriginalMessage` — the raw `_message` bytes from the Solidity contract (your JSON payload)
-- `teetypes.ActionResult` — what you return (contains `Status`, `Data`, `Log`)
+- Test a handler by calling it directly with a `DataFixed` or a `DirectInstruction`, as the template's tests do; the envelope is the library's job.
+- `internal/app/fixtures_test.go` builds the fixtures from Go values, and `golden.Check`, from the shared `internal/golden`, compares them with the committed files.
+  Without `-update` it fails when a committed fixture is missing, extra or out of date.
+  Either way it fails on a fixture set the runner would refuse, such as one op pair on both channels.
+- `fce conformance ./template`, with `fce` the tooling repo's CLI, builds the binary and checks it from the outside: your fixtures, then the rules every extension follows.
+- If you deviate from a recommendation on purpose, add `fce-i-know-what-im-doing` to the extension's directory, with the reason as its text; `fce` then warns instead of failing, and prints the reason.
+- The contract's forge tests read the instruction fixtures, so the contract and the handler can't drift apart; see [contracts.md](contracts.md).
+- [Testing](testing.md) covers every layer, and what to run before a change lands.
 
-## Using the TEE Signing Port
+## 8. Your own environment variables
 
-Extensions can request the TEE to sign data or perform cryptographic operations through the sign port (default: 7701, configurable via `SIGN_PORT`). This is useful for extensions that need to:
-
-- Sign transactions on behalf of the TEE
-- Generate verifiable attestations
-- Encrypt/decrypt data using TEE-managed keys
-
-The sign port is available at `localhost:{SIGN_PORT}` from within the extension.
-
-**The sign port speaks base64, not hex.** tee-node is Go, and Go marshals `[]byte` as base64 in JSON — so `/decrypt` takes `{"encryptedMessage": "<base64>"}` and returns `{"decryptedMessage": "<base64>"}`, unlike the hex used everywhere else on the wire. Python and TypeScript wrap this in `base/node.py` and `src/base/node.ts` respectively, so prefer `NodeClient` over hand-rolling the call. See [extension-contract.md §3](extension-contract.md).
-
-## Step-by-Step: Adding a New Operation
-
-Steps 1–6 are language-specific; the rest are shared. Substitute your language's files using the map above, or let the `/create-extension` skill dispatch for you.
-
-1. **Add constants** — one `OPType` for the operation group, one `OPCommand` per command
-2. **Define request/response shapes** — a pair per command, plus any new state fields
-3. **Route the operation** — Go adds a `case` in `processAction()`; Python and TypeScript call `framework.handle(opType, opCommand, handler)` in `register()`
-4. **Write the sub-router** (Go only) — switch on `OPCommand` and dispatch to individual handlers. Python and TypeScript get this from the registry
-5. **Write each handler** following the 4-step pattern: decode → validate → execute → respond. For ABI-encoded messages use `structs.DecodeTo` (Go), `eth_abi.decode` (Python), or `decodeAbiParameters` (TypeScript); for JSON use the language's decoder
-6. **Expose new state** — Go adds fields to the `Extension` struct and maps them in `stateHandler()`; Python and TypeScript extend `report_state()` / `reportState()`. Keep the JSON keys identical across languages
-7. **Add the Solidity constants and send function** in `contracts/InstructionSender.sol`
-8. **Regenerate bindings**: `./scripts/generate-bindings.sh` — required in every language, since the deployment tooling is Go
-9. **Update the Go tooling** — in `tools/pkg/utils/instructions.go`, update the import path from `helloworld` to your package, rename type references (e.g. `helloworld.DeployHelloWorldInstructionSender` → `orderbook.DeployOrderbookInstructionSender`), and rename the send function call (e.g. `sender.SendSayHello` → `sender.SendPlaceOrder`) to match your new Solidity function name
-10. **Add a test case** in `tools/cmd/run-test/main.go`
-11. **Regenerate the conformance fixtures** — `./python/.venv/bin/python testdata/conformance/gen_fixtures.py` — then `./scripts/test-conformance.sh --all`
-
-> If you maintain more than one language, apply steps 1–6 to each. `./scripts/test-conformance.sh --all` is what catches a language you forgot: the implementations must stay byte-identical on the wire.
-
-## Common Patterns
-
-### Returning errors to the caller
-
-Use `status = 0` in `buildResult`. The error message goes into `ActionResult.Log`:
-
-```go
-if req.Name == "" {
-    return buildResult(action, df, nil, 0, fmt.Errorf("name must not be empty"))
-}
-```
-
-### Maintaining state across actions
-
-Add fields to the `Extension` struct and protect with the mutex:
-
-```go
-e.mu.Lock()
-e.greetingCount++
-e.lastGreeting = greeting
-e.mu.Unlock()
-```
-
-Return state in `stateHandler()` via the `types.State` struct.
-
-### Multiple operation types
-
-Each operation type gets its own handler function. They share the same `Extension` struct, so they can read/write the same state.
+Read them in `main.go`, where the template has a `TODO`, with `os.LookupEnv`, so an unset variable and an empty one can be told apart.
+Fail at startup when one is missing or malformed: the image's binary has no fallback default, stub or test mode to fall back on, and a zero that would turn a check off is refused.
+The image passes the extension only the variables it lists, so each one needs a line in `template/Dockerfile`: in the launch-policy label, which lets the operator set it, and in the launcher's `--env` list, which passes it on.
+`fce conformance` passes its own environment through, so `MY_VAR=value fce conformance ./template` works; it also takes `-env KEY=VALUE`.

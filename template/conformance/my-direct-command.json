@@ -1,0 +1,12 @@
+{
+  "description": "echoes the message as JSON",
+  "channel": "direct",
+  "opType": "MY_EXTENSION",
+  "opCommand": "MY_DIRECT_COMMAND",
+  "message": "0x7b226d657373616765223a2268656c6c6f227d",
+  "result": {
+    "status": 1,
+    "log": "ok",
+    "data": "0x7b226d657373616765223a2268656c6c6f227d"
+  }
+}

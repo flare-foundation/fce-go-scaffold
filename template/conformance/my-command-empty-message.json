@@ -1,0 +1,12 @@
+{
+  "description": "refuses an empty message",
+  "channel": "instruction",
+  "opType": "MY_EXTENSION",
+  "opCommand": "MY_COMMAND",
+  "message": "0x00000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
+  "result": {
+    "status": 0,
+    "log": "error: message required",
+    "data": "0x"
+  }
+}

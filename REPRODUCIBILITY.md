@@ -1,118 +1,71 @@
-# Reproducible Builds
+# Reproducibility
 
-The image's code hash is what gets registered on-chain, so build determinism is
-a security property rather than a nicety.
+Confidential Space attests an extension's image by its config digest: the image's hash.
+The chain registers that hash for the extension, and a TEE whose image hashes differently doesn't get in.
+This repository's images build reproducibly: byte-for-byte the same code gives the same hash, on any machine, on any day, whatever the commit.
+So anyone can check a registered hash by rebuilding it from source; the images are never published.
 
-## Reproducibility is not equal across languages
+## Verify a registered hash
 
-Be precise about what is actually guaranteed. Overclaiming here is worse than
-underclaiming, because the on-chain registration is what depends on it.
+You need the extension's repository, Docker with buildx, and network access to the base images and the Go module proxy.
 
-| Language | Guarantee | Why |
-| --- | --- | --- |
-| **Go** | **Bit-for-bit across machines** | Static `CGO_ENABLED=0` binary with `-trimpath -buildid=`, on a digest-pinned distroless base. Nothing host-specific survives. |
-| **Python** | **Same-machine only** | pip installs prebuilt manylinux wheels whose contents are fixed, but `.dist-info` metadata and installation layout can vary with the pip/setuptools version present in the base image. |
-| **TypeScript** | **Same-machine only** | `npm ci` reproduces the dependency *tree* from `package-lock.json`, but `node_modules` layout, hoisting and file ordering vary across npm versions. |
+1. Check out the commit that was registered.
+   `fce add-version` records it with each version in `<extension directory>/deployments/<chain>.json`, unless the version is a test one or was built from uncommitted changes, and `fce status` shows it.
+2. Run `make image`.
+   It prints each extension's digest, e.g. `template: fce/template sha256:…`.
+3. Compare the digest with the code hashes registered on the chain for the extension.
+   `fce status -chain <network> <extension directory>`, with the tooling repo's CLI, lists them, using the deployment record the fork keeps in `<extension directory>/deployments/`.
 
-For Python and TypeScript, "same-machine" means: rebuilding on the same host
-with the same Docker/pip/npm versions and the same `SOURCE_DATE_EPOCH` yields
-the same digest. It does **not** mean an auditor on different hardware can
-independently reproduce your hash.
+The same digest means the image the TEE runs was built from that commit.
+If it differs, run `make repro`, which builds twice without cache.
+If those two match each other but not the chain, the registered image was built from other code.
 
-If independent third-party verification of the code hash matters for your
-deployment, use the Go path. To tighten Python/TypeScript, pin the runtime base
-images by `sha256` digest (both currently use tag form, marked with a `NOTE:` in
-their Dockerfiles) — this is required before cutting a testnet release.
+The image is for `linux/amd64`, the platform of every Confidential Space machine on Google Cloud.
+Builds are tested on Linux hosts on amd64; other hosts build that image through emulation, which isn't tested yet.
 
-All three share the same tee-node build: `docker/node-base.Dockerfile` compiles
-it once from a pinned ref on the same digest-pinned golang image, so the
-`server` binary bytes are identical across language images.
-`scripts/check-versions.sh` fails the build if that pin drifts from `go/go.mod`.
+## Keep the build reproducible
 
-## How it works
+### What the hash depends on
 
-- `SOURCE_DATE_EPOCH` is set to the commit timestamp and passed as a build arg
-  to clamp all timestamps
-- Go binary is built with `-trimpath -ldflags="-buildid= -s -w"` and
-  `-buildvcs=false` to strip non-deterministic metadata; `CGO_ENABLED=0`
-  produces a static binary so link-time libc variance cannot leak in
-- Base image digest is pinned in the Dockerfile
-- Debian package versions are pinned via apt's native snapshot support
-  (Debian 13+): `Snapshot: true` in the sources file plus
-  `apt-get install --snapshot <SOURCE_DATE_EPOCH>` redirects every fetch to
-  [snapshot.debian.org](https://snapshot.debian.org) at the exact instant of
-  the commit, so the same `SOURCE_DATE_EPOCH` always yields the same package
-  bytes. Adapted from
-  [reproducible-containers/repro-sources-list.sh](https://github.com/reproducible-containers/repro-sources-list.sh/blob/master/alternative/Dockerfile.debian-13)
-- CI uses BuildKit's [`rewrite-timestamp=true`](https://github.com/moby/buildkit/pull/4057)
-  exporter option to normalize layer timestamps
+| Input | Where it's set |
+|---|---|
+| the Dockerfile | `<extension>/Dockerfile` |
+| the files the Dockerfile copies | `go.mod`, `go.sum`, `pkg/`, `launcher/`, and the extension's own packages |
+| tee-node | the version `go.mod` requires |
+| the base images, and with the `golang` image the C toolchain tee-node is built with | their digests in the Dockerfile |
+| BuildKit | its digest in the `Makefile` |
+| the build time written into the image | `SOURCE_DATE_EPOCH` in the Dockerfile |
 
-## Build context
+Nothing else changes it: docs, contracts and tests don't reach the image.
+Every extension shares the root `go.mod`, so a dependency bump for one changes every extension's hash.
 
-The default build is self-contained: the build context is the repo root
-(`docker-compose.yaml` sets `context: .`, `dockerfile: ${EXTENSION_DOCKERFILE}`,
-resolved from `LANGUAGE`). `go/go.mod` pins
-`github.com/flare-foundation/tee-node` to a released version and fetches it from
-the network (verified against `go.sum`), so the build needs only this repo's own
-sources — no sibling `tee-node/` checkout.
+### SOURCE_DATE_EPOCH is a constant
 
-Each language ships a `<lang>/Dockerfile.dockerignore`. BuildKit prefers those
-over the root `.dockerignore`, and each one excludes the *other* language
-directories along with `node_modules/`, `__pycache__/` and `.venv/`. This is not
-only a build-speed concern: anything reachable in the context can perturb layer
-hashes, so a stray local `node_modules` would otherwise undermine determinism.
+The Dockerfile sets it to a fixed time, not the commit's.
+Every file in the image and the config's `created` field carry it, so the same code gives the same hash whatever the commit.
+tee-node's own image uses the commit time instead, so identical code at two commits gets two hashes.
+Raising it changes every hash, so it is reviewed like a release.
 
-> **Developing `tee-node`/`tee-proxy` locally?** Run
-> `USE_LOCAL_SIBLINGS=1 ./scripts/start-services.sh`, which builds from on-disk
-> sibling checkouts via `go/Dockerfile.siblings` (build context `tee/`). That
-> path is Go-only and is for local iteration — it uses whatever is checked out
-> and is **not** reproducible. `start-services.sh` rejects it for other
-> languages, which build tee-node from the pinned ref instead.
+### Build with make image
 
-## Verifying a remote image
+`make image` builds the way the hash needs:
 
-The default Docker builder does not properly support `rewrite-timestamp`
-([moby/buildkit#4230](https://github.com/moby/buildkit/issues/4230)). You need
-a BuildKit builder using the `docker-container` driver.
+- with the BuildKit the `Makefile` pins, in a builder of its own;
+- for `linux/amd64`, the TEE's platform;
+- with `--build-arg SOURCE_DATE_EPOCH` set to the Dockerfile's constant: BuildKit before v0.30 ignores the Dockerfile's default, and a `SOURCE_DATE_EPOCH` in your environment would override it;
+- with `rewrite-timestamp=true`, which caps every file's time in the image at that constant;
+- with `BUILDX_GIT_LABELS` unset: set, buildx adds the commit as labels, so the hash changes with every commit.
 
-Create the builder (one-time setup):
+A plain `docker build` gives another hash, even with the build arg.
 
-```sh
-docker buildx create --driver=docker-container --name=moby-buildkit --driver-opt image=moby/buildkit --bootstrap
-```
+### Traps
 
-Clone the extension repository (self-contained — no sibling `tee-node/` needed;
-the pinned module is fetched from the network at build time):
+| Trap | What happens |
+|---|---|
+| a `# syntax=` line not pinned by digest | it swaps the Dockerfile frontend, and the build can change with it |
+| a base image by tag, not digest | the build changes when the tag moves |
+| a `COPY` from the repository without `--chmod` | file modes follow each checkout's umask |
+| a `replace` of tee-node in `go.mod` | the image build fails: the image runs only the version `go.mod` requires |
+| a comment or blank line that moves code in the extension, `pkg/` or `launcher/` | it changes the hash: Go records line numbers in the binary |
 
-```sh
-git clone https://github.com/flare-foundation/extension-examples.git
-```
-
-Checkout the tag you want to verify, build locally, and compare the image ID
-against the registry image. Run from `extension-examples/extension-scaffold/`:
-
-```sh
-TAG=$(git describe --tags --abbrev=0)
-git checkout "$TAG"
-
-docker buildx build --builder moby-buildkit --platform linux/amd64 --no-cache --build-arg SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) --output "type=docker,rewrite-timestamp=true" -t local/extension-scaffold:verify --load -f Dockerfile .
-
-docker pull --platform linux/amd64 ghcr.io/flare-foundation/extension-scaffold:"$TAG"
-
-docker inspect --format='{{.Id}}' local/extension-scaffold:verify
-docker inspect --format='{{.Id}}' ghcr.io/flare-foundation/extension-scaffold:"$TAG"
-```
-
-Both IDs should be identical.
-
-## Upstream references
-
-- [moby/buildkit#3180](https://github.com/moby/buildkit/issues/3180) -
-  `rewrite-timestamp` only clamps timestamps *down* to `SOURCE_DATE_EPOCH`,
-  older timestamps are left unchanged. The Dockerfile works around this with
-  an explicit `find + touch` to normalize all timestamps before COPY.
-- [moby/buildkit#4057](https://github.com/moby/buildkit/pull/4057) - PR that
-  added `rewrite-timestamp` support to BuildKit exporters
-- [moby/buildkit#4230](https://github.com/moby/buildkit/issues/4230) - open
-  issue tracking `rewrite-timestamp` incompatibility with the default Docker
-  builder and `--load` (`unpack` conflict)
+`fce image-check` reports the first three, and `fce repro` checks a build end to end.
