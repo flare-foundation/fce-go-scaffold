@@ -63,7 +63,7 @@ fce image ./template         # make image, for that extension
 fce repro ./template         # make repro, for that extension
 fce deploy -chain coston2 -account <name> ./template   # deploy and register it; keeps template/deployments/coston2.json
 fce status -chain coston2 ./template                   # compare that record with the chain
-fce run -chain coston2 -account <name> -indexer-db <file> ./template            # a test machine in production, until Ctrl-C
+fce run -chain coston2 -account <name> ./template                               # a test machine in production, until Ctrl-C
 fce send -chain coston2 -account <name> ./template 'myCommand(bytes)' 0x1234    # call the contract and wait for the result
 fce direct -chain coston2 ./template MY_EXTENSION MY_DIRECT_COMMAND 0x…          # a direct action to that machine
 ```

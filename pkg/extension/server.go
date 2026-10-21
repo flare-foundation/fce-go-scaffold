@@ -37,8 +37,8 @@ const (
 	DefaultPostWindow = time.Minute
 	// DefaultMaxResultSize caps a result as the node posts it to the proxy:
 	// signed, data hex-encoded. It is tee-node v0.0.29's MaxFetchResponseSize,
-	// what the node already moves from the proxy within 2 s; tee-proxy v0.0.25
-	// refuses more than 25 MiB.
+	// what the node already moves from the proxy within 2 s; tee-proxy
+	// v0.0.26-alpha.0 refuses more than 25 MiB.
 	DefaultMaxResultSize = 10 * 1024 * 1024
 )
 

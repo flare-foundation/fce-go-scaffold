@@ -78,11 +78,11 @@ The tooling repo's README describes each command.
 
 ## Running
 
-A test machine runs tee-node in test mode, so the extension needs a test version as well as the governance above; tee-proxy also needs an indexer's database, as the tooling repo's README describes:
+A test machine runs tee-node in test mode, so the extension needs a test version as well as the governance above; tee-proxy reads the chain through the RPC, or from an indexer's database with `-indexer-db`, as the tooling repo's README describes:
 
 ```bash
 fce add-version -chain coston2 -account <name> -test ./template                    # allow tee-node's test hash on TEST_PLATFORM
-fce run -chain coston2 -account <name> -indexer-db <file> ./template               # a test machine in production; shows its logs
+fce run -chain coston2 -account <name> ./template                                  # a test machine in production; shows its logs
 fce send -chain coston2 -account <name> ./template 'myCommand(bytes)' 0x68656c6c6f  # "hello"; the result is abi.encode(sender, message)
 fce direct -chain coston2 ./template MY_EXTENSION MY_DIRECT_COMMAND 0x7b226d657373616765223a2268656c6c6f227d  # {"message":"hello"}
 ```
