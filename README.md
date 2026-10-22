@@ -25,14 +25,17 @@ Deployment and operations live in the separate [tooling repo](https://github.com
 The scaffold and the tooling are tested internally first, from Flare's internal GitLab, before they are published on GitHub.
 Until then, the links to `github.com/flare-foundation/fce-go-scaffold` and `github.com/flare-foundation/fce-tooling` in these docs don't resolve; use the internal GitLab repos in their place.
 
-1. Clone both repos from the internal GitLab, side by side, as `scaffold` and `tooling`; the tooling's tests use the scaffold at `../scaffold`:
+1. Clone both repos from the internal GitLab, side by side; the defaults are `scaffold` and `tooling`:
 
    ```bash
    git clone <the scaffold's GitLab repo> scaffold
    git clone <the tooling's GitLab repo> tooling
    ```
 
-2. Install `fce` from the tooling clone with `make -C tooling install`; `go install github.com/flare-foundation/fce-tooling/cmd/fce@<version>` works only once it is published.
+   Other names work: `fce` needs neither repo beside the other, and only the tooling's own tests look for the scaffold, where the tooling's `go.mod` points.
+   If you name the scaffold's directory otherwise, run `go mod edit -replace=github.com/flare-foundation/fce-go-scaffold=../<its name>` in the tooling, and don't commit that change.
+
+2. Install `fce` with `make install` in the tooling; `go install github.com/flare-foundation/fce-tooling/cmd/fce@<version>` works only once it is published.
    Built at a tag such as `v0.1.0` with no local changes, `fce` is that release, and matches this scaffold's `fce-version`.
    Built anywhere else, it is a development build: it warns, and the checks still run.
 3. Fork the scaffold as [docs/fork.md](docs/fork.md) describes, with the scaffold's GitLab repo as `upstream` in place of the GitHub URL.
