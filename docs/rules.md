@@ -140,4 +140,6 @@ The wire rules are in full in the [extension contract](extension-contract.md), a
 | Keep every launcher argument in `ENTRYPOINT`, with no `CMD`, and never set `allow_cmd_override=true` or `log_redirect=always`. | image check (recommendation) | [assumptions](assumptions.md#what-the-operator-sees) |
 | Run the extension as a non-root user with no capabilities. | image check (recommendation) | [architecture](architecture.md#the-image) |
 | Run tee-node at the version `go.mod` requires. | the Dockerfile refuses a `replace` of it; image check (recommendation) | [reproducibility](../REPRODUCIBILITY.md#traps) |
+| Keep the binaries for any amd64 CPU: leave `GOAMD64` at its default, and build no C code with `-march=native`, or the image won't start on every Confidential Space machine. | doc only | [architecture](architecture.md#the-image) |
+| Allow each image on every platform its machines may run on, in one `fce add-version`: the registry never adds a platform to a hash later. | doc only | [deploying](../template/README.md#deploying) |
 | Leave the shared parts untouched, and propose changes to them upstream. | doc only | [forking](fork.md) |

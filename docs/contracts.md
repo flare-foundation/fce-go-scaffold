@@ -119,6 +119,7 @@ The deployer's key ends up owning two things, and the second matters more.
 | deploy | `Deploy.s.sol` | writes `{"instructionSender": "0x…"}` to `DEPLOY_OUTPUT`, with `stateVerifier` too if the extension has one |
 | register | `ExtensionManager.register(stateVerifier, instructionSender)` | returns the extension id |
 | bind the id | `PostRegister.s.sol`: `setExtensionId(id)` | needed before the first send |
+| allow a version | `ExtensionManager.addTeeVersion(extensionId, version, codeHash, platforms)`, or `fce add-version` | once per hash: no platform can be added to it later; a new version label gives the same code a new hash |
 | send | the contract's send functions | callers pay at least `quoteFee` |
 | retire a version | `ExtensionManager.disableCodeHashPlatforms(extensionId, codeHash, platforms)`, or `fce disable-version` | for good: pauses its machines in production, and the hash can never be allowed again |
 

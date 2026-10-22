@@ -67,11 +67,16 @@ The forge tests read `conformance/my-command.json` too, and check that the contr
 ## Deploying
 
 ```bash
-fce deploy -chain coston2 -account <name> ./template                                # deploy the contract, register it, bind its id
-fce add-version -chain coston2 -account <name> -platform GCP_AMD_SEV ./template     # allow the image's hash on a platform
-fce governance -chain coston2 -account <name> -signers 0x… -threshold 1 ./template  # the signers that govern its machines
-fce status -chain coston2 ./template                                                # compare the record with the chain
+fce deploy -chain coston2 -account <name> ./template                                           # deploy the contract, register it, bind its id
+fce add-version -chain coston2 -account <name> -platform GCP_AMD_SEV,GCP_INTEL_TDX ./template  # allow the image's hash on every platform, once
+fce governance -chain coston2 -account <name> -signers 0x… -threshold 1 ./template             # the signers that govern its machines
+fce status -chain coston2 ./template                                                           # compare the record with the chain
 ```
+
+A platform is the hardware a machine attests to: `GCP_AMD_SEV` for AMD SEV and `GCP_INTEL_TDX` for Intel TDX, both Confidential Space on Google Cloud.
+The same image runs on both.
+Name every platform the image's machines may run on: the list is final for that hash, since the registry never adds a platform to a hash it allows already.
+To allow another platform later, bump the version label in the Dockerfile: the same code then has a new hash, which `fce add-version` allows as a new version, for new machines.
 
 `fce` signs with a Foundry keystore account and keeps what it did in `deployments/coston2.json`; commit it, so the extension's addresses are published with its code.
 The tooling repo's README describes each command.

@@ -57,6 +57,8 @@ So the extension's own code decides everything the TEE signs, and everything it 
   All state lives in memory, the extension's included.
 - A machine that stops is gone: Confidential Space reboots the VM, or ends the workload, by its restart policy.
   Either way the next boot has a new key, a new `teeId` and empty state, and can only be registered as a new TEE.
+- Google's host maintenance stops a machine too, unless it live-migrates.
+  In Confidential Space only AMD SEV machines on N2D can, when set to migrate; Intel TDX machines end at every host maintenance.
 - The launcher never restarts the extension alone: anyone able to crash it could otherwise reset its state, nonces and replay protection included, under the same identity.
 - Ciphertexts encrypted to the old key can't be opened any more, and payloads signed for the old `teeId` name a TEE that no longer exists.
 - Wallet keys go with the machine, and come back only by a restore onto another TEE.

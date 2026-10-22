@@ -54,7 +54,7 @@ Flare's [FCC overview](https://dev.flare.network/fcc/overview) introduces the pl
 - [**pause, suspend**](assumptions.md#time): take a machine out of production.
   The machine's owner can pause it; anyone can pause one whose availability check lapsed, and suspend one whose state its state verifier refused.
 - [**payload**](extension-guide.md#2-add-an-op): the bytes an action carries for the extension, in the extension's own format: ABI for instructions, and often JSON for direct actions.
-- [**platform**](../template/README.md#deploying): the kind of machine a TEE version is allowed on: `GCP_AMD_SEV` for Confidential Space, `TEST_PLATFORM` for test machines.
+- [**platform**](../template/README.md#deploying): the kind of machine a TEE version is allowed on, as the machine's attestation names it: `GCP_AMD_SEV` and `GCP_INTEL_TDX` for Confidential Space on AMD SEV and Intel TDX, `TEST_PLATFORM` for test machines.
 - [**production**](contracts.md#8-consuming-results): the status of a machine that receives instructions, and whose signatures `ExtensionBase` accepts.
   An availability check puts a machine there.
 - [**registry**](contracts.md#5-lifecycle): FlareTeeManager's record of extensions: their owners, contracts, TEE versions and machines.
@@ -77,8 +77,8 @@ Flare's [FCC overview](https://dev.flare.network/fcc/overview) introduces the pl
 - [**TEE info**](extension-guide.md#6-the-tee-key-and-wallet-keys): tee-node's signed description of its machine, served by its tee-proxy, including its public key and the extension's state.
 - [**TEE key, teeId**](assumptions.md#a-tee-lives-once): the key tee-node generates in memory at every boot; it signs every result, and users encrypt to it.
   The teeId, the key's address, is the machine's identity, so a restarted machine is a new TEE.
-- [**TEE version**](contracts.md#5-lifecycle): a code hash the extension's owner allows on a platform, with `fce add-version`; machines run only allowed versions.
-  Disabling one is for good.
+- [**TEE version**](contracts.md#5-lifecycle): a code hash the extension's owner allows on platforms, with `fce add-version`; machines run only allowed versions.
+  Its platforms can't be added to later, and disabling one is for good.
 - [**tee-node**](architecture.md): Flare's program in the image that holds the TEE key, fetches actions from tee-proxy, checks instructions, calls the extension, and signs every result.
 - [**tee-proxy**](architecture.md#two-ways-in): the server outside the TEE, one per machine, run by the operator: it queues actions for tee-node, takes direct actions, and serves results and TEE info.
 - [**template**](../template/README.md): `template/`, the minimal extension a fork turns into its own.

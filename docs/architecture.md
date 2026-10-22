@@ -32,6 +32,11 @@ Confidential Space then reboots the VM or not, by its restart policy; either way
 The extension's user can be set at all because Confidential Space starts the container with `CAP_SETUID` and `CAP_SETGID`.
 That is checked in its launcher's source, not yet on a production machine.
 
+The same image runs on every Confidential Space machine, AMD SEV and Intel TDX alike: its hash doesn't depend on the hardware, and its binaries are built for any amd64 CPU.
+Keep them so: leave `GOAMD64` at its default, and build no C code with `-march=native`.
+A `GOAMD64=v4` binary needs AVX-512, which the AMD Milan CPUs of N2D machines lack, so it won't start on them.
+Machines with an NVIDIA H100 GPU are Intel TDX too, and attest as `GCP_INTEL_TDX`, but the image carries no GPU libraries.
+
 ## Ports
 
 | Port | Listens | Reachable | For |
