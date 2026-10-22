@@ -83,22 +83,18 @@ Forks leave the shared parts untouched: everything above but `template/` and `ex
 
 ## Development
 
-```bash
-make lint         # golangci-lint (pinned in the Makefile), every module's go.mod must be tidy, and forge fmt and forge lint for sol/ and every extension's contracts
-make test         # go test, every module, with cgo off, then on with the race detector; then forge test for sol/ and every extension's contracts
-make tidy         # go mod tidy, every module
-make image        # build each extension's image as attested, load it as fce/<dir>, and print its config digest
-make repro        # build each image twice without cache; the config digests must match
-```
+- `make lint`: golangci-lint (pinned in the Makefile), every module's `go.mod` must be tidy, and forge fmt and forge lint for `sol/` and every extension's contracts.
+- `make test`: go test, every module, with cgo off, then on with the race detector; then forge test for `sol/` and every extension's contracts.
+- `make tidy`: go mod tidy, every module.
+- `make image`: build each extension's image as attested, load it as `fce/<dir>`, and print its config digest.
+- `make repro`: build each image twice without cache; the config digests must match.
 
 With `fce`, the tooling repo's CLI, at an extension directory:
 
-```bash
-fce conformance ./template   # build the extension and check it from the outside: its fixtures, then the rules every extension follows
-fce image-check ./template   # build its image with make image, then check it from the outside: Dockerfile, config, hadolint, binaries, a smoke run
-fce image ./template         # make image, for that extension
-fce repro ./template         # make repro, for that extension
-```
+- `fce conformance ./template`: build the extension and check it from the outside: its fixtures, then the rules every extension follows.
+- `fce image-check ./template`: build its image with `make image`, then check it from the outside: Dockerfile, config, hadolint, binaries, a smoke run.
+- `fce image ./template`: `make image`, for that extension.
+- `fce repro ./template`: `make repro`, for that extension.
 
 `fce` fails on recommendations too; the i-know-what-im-doing mode (`-i-know-what-im-doing`, or a file `fce-i-know-what-im-doing` in the extension's directory) turns them into warnings.
 

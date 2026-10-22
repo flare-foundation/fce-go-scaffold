@@ -190,13 +190,9 @@ plain, err := tee.DecryptWallet(ctx, walletID, keyID, ciphertext) // ECIES with 
 
 ## 7. Testing
 
-```bash
-go test ./template/...                    # handler tests, and the fixtures are current
-go test ./template/internal/app -update   # rewrite the fixtures after changing them
-make lint test                            # the linters, and the Go and forge tests
-fce conformance ./template                # build the binary and check it from the outside
-```
-
+- `go test ./template/...`: handler tests, and the fixtures are current.
+- `go test ./template/internal/app -update`: rewrite the fixtures after changing them.
+- `make lint test`: the linters, and the Go and forge tests.
 - Test a handler by calling it directly with a `DataFixed` or a `DirectInstruction`, as the template's tests do; the envelope is the library's job.
 - `internal/app/fixtures_test.go` builds the fixtures from Go values, and `golden.Check`, from the shared `internal/golden`, compares them with the committed files.
   Without `-update` it fails when a committed fixture is missing, extra or out of date.

@@ -90,8 +90,10 @@ With Foundry's `cast`:
 digest=$(cast keccak $(cast abi-encode "f(bytes32,bytes32,address,string,bytes)" \
   $(cast format-bytes32-string SECRETS) $(cast format-bytes32-string PROVISION) \
   "$TEE_ID" api-key "$ciphertext"))
-cast wallet sign --private-key "$ADMIN_KEY" "$digest"   # or --account, --ledger
+cast wallet sign --private-key "$ADMIN_KEY" "$digest"
 ```
+
+`cast wallet sign` also takes `--account` or `--ledger` in place of `--private-key`.
 
 The payload is then `{"teeId":"$TEE_ID","name":"api-key","ciphertext":"$ciphertext","signature":"<the signature>"}`, posted to the TEE's proxy as the [template](../../template/README.md#my_direct_command) shows, with the op type `SECRETS` and the op command `PROVISION`.
 [`conformance/03-provision.json`](conformance/03-provision.json) holds one, signed by a public test key for the fake sign port's TEE.
@@ -202,13 +204,11 @@ Relaunch the TEEs after moving to a new contract version, or bind both to the co
 
 ## Testing
 
-```bash
-go test ./examples/direct/...                    # the handlers, and the fixtures are current
-go test ./examples/direct/internal/app -update   # rewrite the fixtures after changing them
-make test                                        # also runs the contract's forge tests
-fce conformance ./examples/direct                # build the binary and check it from the outside
-fce image-check ./examples/direct                # build the image, then check it from the outside
-```
+- `go test ./examples/direct/...`: the handlers, and the fixtures are current.
+- `go test ./examples/direct/internal/app -update`: rewrite the fixtures after changing them.
+- `make test`: also runs the contract's forge tests.
+- `fce conformance ./examples/direct`: build the binary and check it from the outside.
+- `fce image-check ./examples/direct`: build the image, then check it from the outside.
 
 The fixtures run in name order in one process, so they are numbered: the admin is set before the admin actions.
 `02-set-admin.json` gives `again`: conformance sends it again, so it checks an instruction delivered again is refused.

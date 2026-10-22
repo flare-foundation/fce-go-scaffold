@@ -115,13 +115,11 @@ A key that can't be restored is lost: no key can be added to an enabled wallet, 
 
 ## Testing
 
-```bash
-go test ./examples/wallets/...                    # signing through a fake sign port, and the fixtures are current
-go test ./examples/wallets/internal/app -update   # rewrite the fixtures after changing them
-make test                                         # also runs the contract's forge tests
-fce conformance ./examples/wallets                # build the binary and check it from the outside
-fce image-check ./examples/wallets                # build the image, then check it from the outside
-```
+- `go test ./examples/wallets/...`: signing through a fake sign port, and the fixtures are current.
+- `go test ./examples/wallets/internal/app -update`: rewrite the fixtures after changing them.
+- `make test`: also runs the contract's forge tests.
+- `fce conformance ./examples/wallets`: build the binary and check it from the outside.
+- `fce image-check ./examples/wallets`: build the image, then check it from the outside.
 
 The fake sign port holds one wallet key: wallet `keccak256("fakenode wallet")`, key 0, no cosigners.
 It is anvil's second test account, so the first fixture's transaction goes through on a local anvil:

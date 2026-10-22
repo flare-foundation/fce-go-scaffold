@@ -50,15 +50,13 @@ Anyone who saw a direct action can post it again, so each direct command is idem
 
 ## Testing
 
-```bash
-go test ./template/...                           # the handlers, and the fixtures are current
-go test ./template/internal/app -update          # rewrite the fixtures after changing them
-make test                                        # also runs the contract's forge tests
-fce conformance ./template                       # build the binary and check it from the outside
-fce image ./template                             # build the image as attested and print its config digest
-fce repro ./template                             # build it twice without cache; the digests must match
-fce image-check ./template                       # build the image, then check it from the outside
-```
+- `go test ./template/...`: the handlers, and the fixtures are current.
+- `go test ./template/internal/app -update`: rewrite the fixtures after changing them.
+- `make test`: also runs the contract's forge tests.
+- `fce conformance ./template`: build the binary and check it from the outside.
+- `fce image ./template`: build the image as attested and print its config digest.
+- `fce repro ./template`: build it twice without cache; the digests must match.
+- `fce image-check ./template`: build the image, then check it from the outside.
 
 `fce conformance`, from the tooling repo, starts the binary against a fake sign port, sends it each fixture as tee-node would, and runs the checks every extension must pass.
 The forge tests read `conformance/my-command.json` too, and check that the contract builds exactly its op pair and payload.
@@ -67,11 +65,16 @@ The forge tests read `conformance/my-command.json` too, and check that the contr
 ## Deploying
 
 ```bash
-fce deploy -chain coston2 -account <name> ./template                                           # deploy the contract, register it, bind its id
-fce add-version -chain coston2 -account <name> -platform GCP_AMD_SEV,GCP_INTEL_TDX ./template  # allow the image's hash on every platform, once
-fce governance -chain coston2 -account <name> -signers 0x… -threshold 1 ./template             # the signers that govern its machines
-fce status -chain coston2 ./template                                                           # compare the record with the chain
+fce deploy -chain coston2 -account <name> ./template
+fce add-version -chain coston2 -account <name> -platform GCP_AMD_SEV,GCP_INTEL_TDX ./template
+fce governance -chain coston2 -account <name> -signers 0x… -threshold 1 ./template
+fce status -chain coston2 ./template
 ```
+
+- `fce deploy`: deploy the contract, register it, bind its id.
+- `fce add-version`: allow the image's hash on every platform, once.
+- `fce governance`: the signers that govern its machines.
+- `fce status`: compare the record with the chain.
 
 A platform is the hardware a machine attests to: `GCP_AMD_SEV` for AMD SEV and `GCP_INTEL_TDX` for Intel TDX, both Confidential Space on Google Cloud.
 The same image runs on both.
@@ -86,12 +89,22 @@ The tooling repo's README describes each command.
 A test machine runs tee-node in test mode, so the extension needs a test version as well as the governance above; tee-proxy reads the chain through the RPC, or from an indexer's database with `-indexer-db`, as the tooling repo's README describes:
 
 ```bash
-fce add-version -chain coston2 -account <name> -test ./template                    # allow tee-node's test hash on TEST_PLATFORM
-fce run -chain coston2 -account <name> ./template                                  # a test machine in production; shows its logs
-fce send -chain coston2 -account <name> ./template 'myCommand(bytes)' 0x68656c6c6f  # "hello"; the result is abi.encode(sender, message)
-fce direct -chain coston2 ./template MY_EXTENSION MY_DIRECT_COMMAND 0x7b226d657373616765223a2268656c6c6f227d  # {"message":"hello"}
+fce add-version -chain coston2 -account <name> -test ./template
+fce run -chain coston2 -account <name> ./template
 ```
 
-`fce run` stays attached; send from a second terminal.
-Ctrl-C pauses the machine on chain and removes it.
+- `fce add-version -test`: allow tee-node's test hash on `TEST_PLATFORM`.
+- `fce run`: a test machine in production; it stays attached and shows its logs.
+
+From a second terminal:
+
+```bash
+fce send -chain coston2 -account <name> ./template 'myCommand(bytes)' 0x68656c6c6f
+fce direct -chain coston2 ./template MY_EXTENSION MY_DIRECT_COMMAND 0x7b226d657373616765223a2268656c6c6f227d
+```
+
+- `fce send`: "hello"; the result is `abi.encode(sender, message)`.
+- `fce direct`: `{"message":"hello"}`.
+
+Ctrl-C in the first terminal pauses the machine on chain and removes it.
 A test machine has no TEE, and its key sits in a container on your host: keep the test version off an extension real users use, or disable it, `fce disable-version -test`, before they arrive.

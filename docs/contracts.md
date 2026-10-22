@@ -151,11 +151,9 @@ INSTRUCTION_SENDER=0x… EXTENSION_ID=… forge script script/PostRegister.s.sol
 
 ## 6. Testing
 
-```bash
-make test                                  # Go tests, then forge test for sol/ and every extension
-cd sol && forge test                       # the shared base alone
-cd template/contracts && forge test        # the template's contract alone
-```
+- `make test`: Go tests, then forge test for `sol/` and every extension.
+- `cd sol && forge test`: the shared base alone.
+- `cd template/contracts && forge test`: the template's contract alone.
 
 `forge lint` builds without bytecode into the project's `out/` and `cache/`: afterwards `forge build` keeps those artifacts, `forge test` finds no tests and still passes, and `forge script` fails.
 Run `forge clean` after a `forge lint` of your own; `make lint` lints in a throwaway directory, and `make test` runs `forge test --force`.

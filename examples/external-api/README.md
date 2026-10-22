@@ -108,13 +108,11 @@ Each one still costs a request to every source, and all requests share their rat
 
 ## Testing
 
-```bash
-go test ./examples/external-api/...                    # the sources stubbed over TLS, and the fixtures are current
-go test ./examples/external-api/internal/app -update   # rewrite the fixtures after changing them
-make test                                              # also runs the contract's forge tests
-fce conformance ./examples/external-api                # build the binary and check it from the outside
-fce image-check ./examples/external-api                # build the image, then check it from the outside
-```
+- `go test ./examples/external-api/...`: the sources stubbed over TLS, and the fixtures are current.
+- `go test ./examples/external-api/internal/app -update`: rewrite the fixtures after changing them.
+- `make test`: also runs the contract's forge tests.
+- `fce conformance ./examples/external-api`: build the binary and check it from the outside.
+- `fce image-check ./examples/external-api`: build the image, then check it from the outside.
 
 The binary fetches from the real sources, so a known pair's result isn't fixed, and the fixtures cover only what needs no network: an unknown pair and a bad payload, on both channels.
 The unit tests stub the sources over TLS with answers they really gave, and cover the partials, the median, and each way a source fails: an error status, a redirect, an oversized or malformed answer.
