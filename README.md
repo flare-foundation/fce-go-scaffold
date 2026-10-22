@@ -81,6 +81,16 @@ Forks leave the shared parts untouched: everything above but `template/` and `ex
 - Docker with buildx, for the image: `make image`, `make repro` and `fce image-check`
 - `fce`, the CLI of the [tooling repo](https://github.com/flare-foundation/fce-tooling), at a version `fce-version` names (`v0.1` is any v0.1.x), for conformance and the image checks
 
+## Before you install or run anything
+
+- Get the scaffold, `fce`, Go and Foundry only from their official sources: Flare's internal GitLab for now, `github.com/flare-foundation` once published, go.dev and getfoundry.sh.
+  Check the URL of any fork you start from.
+- Install `fce` at a release tag once there is one; an untagged build warns that it is a development build.
+- The repos pin everything they fetch: Go modules in `go.sum`, images by digest, contract dependencies in `soldeer.lock`.
+  Review a change to those files like code.
+- `fce` and the `make` targets build and run code, and `fce` signs with the keystore you give it: sign with a key that holds only test funds, never one with real funds.
+- Report anything suspicious to `security at flare dot network`, as [SECURITY.md](SECURITY.md) says.
+
 ## Development
 
 - `make lint`: golangci-lint (pinned in the Makefile), every module's `go.mod` must be tidy, and forge fmt and forge lint for `sol/` and every extension's contracts.
