@@ -13,6 +13,7 @@ In reading order:
 | [Contracts](contracts.md) | the entrypoint contract: sending, fees, the owner, checking a TEE's signature |
 | [Direct actions](direct-actions.md) | actions that skip the chain: who sent them, replays, secrets |
 | [Testing](testing.md) | every test layer, and what to run before a change lands |
+| [Production](production.md) | running a machine in production: a draft, work in progress |
 | [Forking](fork.md) | what a fork changes and what it leaves, the optional renames, and merging upstream |
 | [Extension contract](extension-contract.md) | the wire rules between tee-node and an extension, in any language, and the conformance fixtures |
 

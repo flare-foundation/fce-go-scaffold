@@ -83,6 +83,7 @@ To allow another platform later, bump the version label in the Dockerfile: the s
 
 `fce` signs with a Foundry keystore account and keeps what it did in `deployments/coston2.json`; commit it, so the extension's addresses are published with its code.
 The tooling repo's README describes each command.
+Running a machine in production is by hand for now; [production](../docs/production.md) drafts it, a work in progress.
 
 ## Running
 

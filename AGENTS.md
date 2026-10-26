@@ -7,7 +7,7 @@ Humans start at [README.md](README.md).
 
 The FCC extension scaffold, or a fork of it.
 Developers fork the scaffold to build a Flare Confidential Compute extension.
-Deployment and operations live in the separate [tooling repo](https://github.com/flare-foundation/fce-tooling).
+The separate [tooling repo](https://github.com/flare-foundation/fce-tooling) deploys and registers extensions; [docs/production.md](docs/production.md) drafts running a machine in production.
 
 > **Work in progress.**
 > v2 is being rebuilt from scratch.

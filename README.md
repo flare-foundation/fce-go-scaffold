@@ -13,7 +13,7 @@
 # FCC extension scaffold
 
 The starting point for building a Flare Confidential Compute (FCC) extension: an application that runs in a TEE beside tee-node, reached through its own contract on chain, or through direct actions.
-Deployment and operations live in the separate [tooling repo](https://github.com/flare-foundation/fce-tooling).
+The separate [tooling repo](https://github.com/flare-foundation/fce-tooling) deploys and registers extensions; [docs/production.md](docs/production.md) drafts running a machine in production.
 
 > **Work in progress.**
 > v2 is being rebuilt from scratch.
@@ -64,7 +64,7 @@ The [glossary](docs/glossary.md) defines the terms the docs use.
 - `template/`: the minimal extension a fork turns into its own; see its [README](template/README.md).
 - `examples/`: small extensions, laid out as the template, most showing more than one concept: [`direct`](examples/direct/README.md) provisions secrets through direct actions: authorized, safe to replay, encrypted to the TEE; runs hidden auctions, with bids encrypted to the TEE through its contract and the winner signed for it; and reports its admin as state, which its contract checks; [`external-api`](examples/external-api/README.md) fetches a price from three APIs over TLS, past tee-node's 2 s, with partial results, and signs it for its contract to check; [`wallets`](examples/wallets/README.md) signs EVM transactions with a wallet key tee-node keeps in the TEE, for a signer the wallet's project owner names, numbered by its contract.
 - `sol/`: the shared Solidity base every extension's entrypoint contract inherits, with its tests and the mock FlareTeeManager extensions test against.
-- `docs/`: [the docs](docs/README.md): architecture, assumptions, rules, the Go and contract guides, direct actions, testing, forking, the extension contract, and a [glossary](docs/glossary.md).
+- `docs/`: [the docs](docs/README.md): architecture, assumptions, rules, the Go and contract guides, direct actions, testing, a draft on production, forking, the extension contract, and a [glossary](docs/glossary.md).
 - `conformance/`: the format of each extension's conformance fixtures, which `fce`, the tooling repo's CLI, checks the extension against.
 - `internal/`: test helpers: a fake sign port, and the check that keeps an extension's conformance fixtures current.
 - `launcher/`: the language-agnostic PID 1 of the image; its own stdlib-only module.
