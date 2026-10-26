@@ -72,5 +72,5 @@ Try them on an anvil fork first, `anvil --fork-url <the network's RPC>` and `-rp
 Then `fce run` starts a test machine of the extension, tee-node in test mode with the extension's image, and takes it to production; `fce send` calls the extension's contract and waits for each instruction's result, and `fce direct` posts a direct action to the machine; both check the result's signatures.
 A test machine has no TEE: its operator holds its key, and while its version is allowed, contracts accept its signatures, so run it on an extension real users don't use ([test machines](assumptions.md#test-machines)).
 Ctrl-C, or `fce stop` after `fce run -detach`, pauses the machine on chain and removes it.
-`fce run` needs a public URL, and the chain itself, not a fork, whose data providers deliver the machine's challenge and its instructions; the tooling repo's README describes what it takes.
+`fce run` needs a public URL, and the chain itself, not a fork, whose data providers deliver the machine's challenge and its instructions; the tooling repo's README describes what it takes, and how to set the same stack up by hand.
 Its tee-proxy reads the chain through the RPC, or, with `-indexer-db`, from an indexer's database.
