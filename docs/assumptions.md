@@ -76,7 +76,7 @@ So the extension's own code decides everything the TEE signs, and everything it 
 
 - A machine stays in production after its availability check lapses, until someone pauses it, and the random pick still chooses it.
   A check is valid for one reward epoch: 6 hours on Coston and Coston2, 3.5 days on Songbird and Flare.
-- So a machine in production needs its availability check run every period; anyone can run it, and `fce run` does for test machines.
+- So a machine in production needs its availability check run every period; anyone can run it, and `fce run` runs only the first, when it takes a test machine to production.
   Once it lapses, anyone can pause the machine, and after a longer lapse it can't be confirmed again.
 - Confidential Space documents no guarantee for the TEE's clock.
   An instruction carries its block's timestamp, signed by the data providers; block time is the clock to bound by.
