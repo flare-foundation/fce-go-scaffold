@@ -7,7 +7,7 @@ import (
 	"strconv"
 )
 
-// Parsing, defaults and checks mirror tee-node v0.0.29 (internal/settings); re-check them on every tee-node bump.
+// Parsing, defaults and checks mirror tee-node v0.0.30 (internal/settings); re-check them on every tee-node bump.
 const (
 	extensionPortVar = "EXTENSION_PORT"
 	signPortVar      = "SIGN_PORT"

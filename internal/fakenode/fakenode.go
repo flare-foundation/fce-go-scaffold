@@ -32,7 +32,7 @@ var walletID = crypto.Keccak256Hash([]byte("fakenode wallet"))
 // WalletKeyID is the id of the one wallet key the fake holds.
 const WalletKeyID uint64 = 0
 
-// Node serves the sign port as tee-node v0.0.29 does, with the same strict
+// Node serves the sign port as tee-node v0.0.30 does, with the same strict
 // decoding: POST /sign, /decrypt and /result with the TEE key, and
 // GET /key-info, POST /sign and /decrypt with the wallet key. It is safe for
 // concurrent use.

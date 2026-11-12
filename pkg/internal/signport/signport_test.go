@@ -21,7 +21,7 @@ import (
 )
 
 // resultSink serves POST /result, answering the scripted statuses in turn,
-// then 200; it decodes as strictly as tee-node v0.0.29.
+// then 200; it decodes as strictly as tee-node v0.0.30.
 type resultSink struct {
 	mu     sync.Mutex
 	script []int

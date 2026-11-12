@@ -75,7 +75,7 @@ Forks leave the shared parts untouched: everything above but `template/` and `ex
 
 ## Requirements
 
-- Go 1.26.10 or higher
+- Go 1.27.4 or higher
 - gcc, for the tests that run with cgo
 - Foundry 1.7.1 or higher
 - Docker with buildx, for the image: `make image`, `make repro` and `fce image-check`
