@@ -16,6 +16,7 @@ End to end needs a chain, and runs by hand: nothing runs it automatically yet.
 | end to end | deploy, register, a test machine and a round trip, on a chain | by hand with `fce`: `deploy`, `run`, then `send` or `direct`; see [end to end](#end-to-end) |
 
 `make test` runs the Go and forge tests of the whole repository, and `make lint` its linters.
+`make lint-go` and `make lint-sol`, and `make test-go` and `make test-sol`, run each half alone.
 `fce` is the CLI of the [tooling repo](https://github.com/flare-foundation/fce-tooling), at a version `fce-version` names; its README says how to install it.
 
 ## Before a change lands

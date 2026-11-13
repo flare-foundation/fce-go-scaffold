@@ -2,7 +2,7 @@
 
 The trust model an extension runs under, and the platform facts to design around.
 It describes a production machine, tee-node with `MODE=0` on a Confidential Space production image; a debug image or a [test machine](#test-machines) gives the operator far more.
-They hold for tee-node v0.0.29, and build on tee-node's own security model, its `docs/security.md`.
+They hold for tee-node v0.0.30, and build on tee-node's own security model, its `docs/security.md`.
 The rules that follow from them are in [rules.md](rules.md).
 
 ## Who can do what

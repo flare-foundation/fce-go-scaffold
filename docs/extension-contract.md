@@ -4,7 +4,7 @@ What an extension must do to work with tee-node, in any language.
 
 ## Scope
 
-The rules hold for tee-node v0.0.29, the version the scaffold pins in `go.mod`.
+The rules hold for tee-node v0.0.30, the version the scaffold pins in `go.mod`.
 Limits and behaviour may change with a tee-node release; the scaffold re-checks them on every bump.
 
 Each rule is one of two kinds:

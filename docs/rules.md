@@ -1,7 +1,7 @@
 # Rules
 
 Every must and must-not of an extension, each with what enforces it.
-They hold for tee-node v0.0.29, the version the scaffold pins.
+They hold for tee-node v0.0.30, the version the scaffold pins.
 The wire rules are in full in the [extension contract](extension-contract.md), and the trust model behind the rest in [assumptions](assumptions.md).
 
 | Enforced by | Means |

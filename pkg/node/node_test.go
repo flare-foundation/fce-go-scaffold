@@ -31,18 +31,18 @@ var (
 
 const keyID = 3
 
-// nodeSign signs as tee-node v0.0.29's /sign: utils.Sign over keccak256(msg).
+// nodeSign signs as tee-node v0.0.30's /sign: utils.Sign over keccak256(msg).
 func nodeSign(msg []byte) ([]byte, error) {
 	return crypto.Sign(accounts.TextHash(crypto.Keccak256(msg)), testKey)
 }
 
-// eciesKey is testKey as tee-node v0.0.29's utils.ECDSAPrivKeyToECIES converts it:
+// eciesKey is testKey as tee-node v0.0.30's utils.ECDSAPrivKeyToECIES converts it:
 // secp256k1 with ECIES_AES128_SHA256.
 func eciesKey() *ecies.PrivateKey {
 	return ecies.ImportECDSA(testKey)
 }
 
-// fakeNode serves tee-node v0.0.29's POST /sign and POST /decrypt, with the same checks.
+// fakeNode serves tee-node v0.0.30's POST /sign and POST /decrypt, with the same checks.
 func fakeNode() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /sign", func(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +124,7 @@ func fakeNode() http.Handler {
 	return mux
 }
 
-// walletKeyOf parses the ids as tee-node v0.0.29 does, and answers 400 or 404
+// walletKeyOf parses the ids as tee-node v0.0.30 does, and answers 400 or 404
 // unless they name the fake's wallet key.
 func walletKeyOf(w http.ResponseWriter, r *http.Request) bool {
 	id, err := hex.DecodeString(strings.TrimPrefix(strings.ToLower(r.PathValue("w")), "0x"))

@@ -19,7 +19,7 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 )
 
-// Limits mirror tee-node v0.0.29 (internal/settings); re-check them on every tee-node bump.
+// Limits mirror tee-node v0.0.30 (internal/settings); re-check them on every tee-node bump.
 const (
 	// MaxBodySize caps the /action body; tee-node fetches actions with the same cap (MaxFetchResponseSize).
 	MaxBodySize = 10 * 1024 * 1024
@@ -36,9 +36,9 @@ const (
 	// DefaultPostWindow is how long each result post from a long-running job retries.
 	DefaultPostWindow = time.Minute
 	// DefaultMaxResultSize caps a result as the node posts it to the proxy:
-	// signed, data hex-encoded. It is tee-node v0.0.29's MaxFetchResponseSize,
+	// signed, data hex-encoded. It is tee-node v0.0.30's MaxFetchResponseSize,
 	// what the node already moves from the proxy within 2 s; tee-proxy
-	// v0.0.26-alpha.1 refuses more than 25 MiB.
+	// v0.0.27 refuses more than 25 MiB.
 	DefaultMaxResultSize = 10 * 1024 * 1024
 )
 
@@ -298,6 +298,9 @@ func (s *Server) run(ctx context.Context, res types.ActionResult, f func(context
 	select {
 	case o := <-ch:
 		switch {
+		// select picks at random when both are ready
+		case ctx.Err() != nil:
+			return fail(res, errDeadline)
 		case o.err != nil:
 			return fail(res, o.err)
 		case o.run == nil:

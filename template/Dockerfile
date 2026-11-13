@@ -7,7 +7,7 @@
 # a constant, not the commit time, so the same code gives the same hash at any commit; a bump changes every hash
 ARG SOURCE_DATE_EPOCH=1790812800
 
-FROM golang:1.26.10-trixie@sha256:909771fef53e3dcb0950255f0c9a8b4728c3b841e61509c7b29b098de7ee02d4 AS go
+FROM golang:1.27.4-trixie@sha256:b54b2639de8c1bfe538ec5ffc45f29b1932235ac5f6d63c059853646677112d9 AS go
 # a go.mod newer than this image fails the build instead of downloading a toolchain
 ENV GOTOOLCHAIN=local GOFLAGS=-buildvcs=false
 WORKDIR /src

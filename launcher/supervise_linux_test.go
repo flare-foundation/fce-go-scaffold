@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 }
 
 // fake acts as a child. It prints "<role>: ready", then by mode:
-//   - die: has no signal handler, so a stop signal ends it, as tee-node v0.0.29;
+//   - die: has no signal handler, so a stop signal ends it, as tee-node v0.0.30;
 //   - obey: exits 0 on SIGTERM or SIGINT, as the template;
 //   - fail: exits 1 on SIGTERM or SIGINT;
 //   - ignore: ignores SIGTERM and SIGINT;

@@ -184,7 +184,7 @@ func (s *supervisor) code() int {
 }
 
 // obeyed reports whether a child stopped as asked: with exit code 0, or ended
-// by the signal itself, as tee-node v0.0.29 does, having no signal handler.
+// by the signal itself, as tee-node v0.0.30 does, having no signal handler.
 func obeyed(ws syscall.WaitStatus, sent syscall.Signal) bool {
 	return (ws.Exited() && ws.ExitStatus() == 0) || (ws.Signaled() && ws.Signal() == sent)
 }

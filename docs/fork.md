@@ -5,7 +5,7 @@ The fork changes its own parts, and gets fixes to the shared ones by merging ups
 
 ## Start
 
-You need Go 1.26.10 or higher, gcc, Foundry 1.7.1 or higher, Docker with buildx for the image, and `fce`, the CLI of the [tooling repo](https://github.com/flare-foundation/fce-tooling), at a version `fce-version` names.
+You need Go 1.27.4 or higher, gcc, Foundry 1.7.1 or higher, Docker with buildx for the image, and `fce`, the CLI of the [tooling repo](https://github.com/flare-foundation/fce-tooling), at a version `fce-version` names.
 
 ```bash
 git clone <your fork> && cd <your fork>
