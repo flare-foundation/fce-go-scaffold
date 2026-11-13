@@ -20,27 +20,6 @@ The separate [tooling repo](https://github.com/flare-foundation/fce-tooling) dep
 > The library, the template, three examples, the shared contract base, the reproducible image and the docs are in place, and the tooling repo deploys and registers extensions on a chain, runs test machines of them and sends them instructions and direct actions; setting up wallets with it comes later.
 > The previous version (v1) is on `main`.
 
-## Internal use before release
-
-The scaffold and the tooling are tested internally first, from Flare's internal GitLab, before they are published on GitHub.
-Until then, the links to `github.com/flare-foundation/fce-go-scaffold` and `github.com/flare-foundation/fce-tooling` in these docs don't resolve; use the internal GitLab repos in their place.
-
-1. Clone both repos from the internal GitLab, side by side; the defaults are `scaffold` and `tooling`:
-
-   ```bash
-   git clone <the scaffold's GitLab repo> scaffold
-   git clone <the tooling's GitLab repo> tooling
-   ```
-
-   Other names work: `fce` needs neither repo beside the other, and only the tooling's own tests look for the scaffold, where the tooling's `go.mod` points.
-   If you name the scaffold's directory otherwise, run `go mod edit -replace=github.com/flare-foundation/fce-go-scaffold=../<its name>` in the tooling, and don't commit that change.
-
-2. Install `fce` with `make install` in the tooling; `go install github.com/flare-foundation/fce-tooling/cmd/fce@<version>` works only once it is published.
-   Built at a tag such as `v0.1.0` with no local changes, `fce` is that release, and matches this scaffold's `fce-version`.
-   Built anywhere else, it is a development build: it warns, and the checks still run.
-3. Fork the scaffold as [docs/fork.md](docs/fork.md) describes, with the scaffold's GitLab repo as `upstream` in place of the GitHub URL.
-4. Report issues and open merge requests on the internal GitLab, not on GitHub.
-
 ## What it gives you
 
 - The [rules](docs/rules.md) an extension follows, each with what enforces it, and the [assumptions](docs/assumptions.md) behind them: who can do what.
@@ -83,7 +62,7 @@ Forks leave the shared parts untouched: everything above but `template/` and `ex
 
 ## Before you install or run anything
 
-- Get the scaffold, `fce`, Go and Foundry only from their official sources: Flare's internal GitLab for now, `github.com/flare-foundation` once published, go.dev and getfoundry.sh.
+- Get the scaffold, `fce`, Go and Foundry only from their official sources: `github.com/flare-foundation`, go.dev and getfoundry.sh.
   Check the URL of any fork you start from.
 - Install `fce` at a release tag once there is one; an untagged build warns that it is a development build.
 - The repos pin everything they fetch: Go modules in `go.sum`, images by digest, contract dependencies in `soldeer.lock`.

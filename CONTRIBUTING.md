@@ -42,7 +42,7 @@ The request must:
 Use the Go version specified in [go.mod](go.mod) or newer, and have gcc and Foundry 1.7.1 or newer installed.
 `make lint` and `make test` also run forge for `sol/` and every extension's contracts.
 The image targets, `make image` and `make repro`, need Docker with buildx; they create a pinned BuildKit builder on first use.
-Conformance and the image checks run with `fce`, the CLI of the [tooling repo](https://github.com/flare-foundation/fce-tooling), at a version `fce-version` names; install it with `make install` in a clone of that repo.
+Conformance and the image checks run with `fce`, the CLI of the [tooling repo](https://github.com/flare-foundation/fce-tooling), at a version `fce-version` names; install it as that repo's README says.
 `fce-version` holds a version prefix such as `v0.1`, and `fce` refuses a scaffold that names another.
 Raise it when a change needs a newer `fce`, for example a launcher flag the image checks must read.
 The scaffold's own extensions follow every recommendation: none has an `fce-i-know-what-im-doing` file, and the checks run without `-i-know-what-im-doing`.
