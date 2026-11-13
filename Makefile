@@ -1,17 +1,21 @@
 # pinned and built by the module's toolchain; a golangci-lint built with an older Go refuses the go.mod version
-GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 
 MODULES := . launcher
 
 # sol/ and every extension's Foundry project; each runs forge soldeer install first, since forge build doesn't
 CONTRACTS := sol $(patsubst %/foundry.toml,%,$(wildcard */contracts/foundry.toml examples/*/contracts/foundry.toml))
 
-.PHONY: lint test tidy image repro builder drift
+.PHONY: lint lint-go lint-sol test test-go test-sol tidy image repro builder drift
+
+lint: lint-go lint-sol
 
 # config verify: run silently ignores unknown keys
-lint:
+lint-go:
 	@$(GOLANGCI_LINT) config verify
 	@for m in $(MODULES); do (cd $$m && go mod tidy -diff && $(GOLANGCI_LINT) run ./...) || exit 1; done
+
+lint-sol:
 	@# forge lint builds without bytecode: in the project's out/ and cache/, forge build would keep that and forge test find no tests
 	@d=$$(mktemp -d) && trap 'rm -rf "$$d"' EXIT && \
 	for c in $(CONTRACTS); do (cd $$c && forge soldeer install --quiet && forge fmt --check && FOUNDRY_OUT=$$d/$$c/out FOUNDRY_CACHE_PATH=$$d/$$c/cache forge lint --deny warnings) || exit 1; done
@@ -20,12 +24,16 @@ lint:
 		awk 'BEGIN { RS = "" } NR == FNR { want[$$0]; next } { delete want[$$0] } END { for (b in want) { print FILENAME ": not pinned as in sol/soldeer.lock:\n" b; bad = 1 } exit bad }' sol/soldeer.lock $$c/soldeer.lock || exit 1; \
 	done
 
+test: test-go test-sol
+
 # both cgo modes: the image builds the extension without cgo, go test defaults to cgo where gcc exists; -race needs cgo
-test:
+test-go:
 	@for m in $(MODULES); do \
 		echo "$$m: CGO_ENABLED=0"; (cd $$m && CGO_ENABLED=0 go test ./...) || exit 1; \
 		echo "$$m: CGO_ENABLED=1 -race"; (cd $$m && CGO_ENABLED=1 go test -race ./...) || exit 1; \
 	done
+
+test-sol:
 	@# --force: a forge lint run by hand may have left artifacts without bytecode
 	@for c in $(CONTRACTS); do echo "$$c: forge test"; (cd $$c && forge soldeer install --quiet && forge test --force) || exit 1; done
 

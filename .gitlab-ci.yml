@@ -1,0 +1,93 @@
+stages:
+  - test
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_TAG
+
+default:
+  tags:
+    - flarenetwork
+  artifacts:
+    expire_in: 3 days
+
+# both cgo modes, as make test-go: the image builds without cgo, -race needs cgo
+.go_test_command: &go_test_command "CGO_ENABLED=0 go test ./... && CGO_ENABLED=1 go test -race -covermode=atomic -coverprofile=coverage.out ./..."
+
+variables:
+  GO_VERSION: "1.27.4"
+  # keep in step with the Makefile's GOLANGCI_LINT
+  GOLANGCI_VERSION: "v2.15.0"
+
+include:
+  - component: gitlab.com/flarenetwork/ci-components-private/lint-go@2
+    inputs:
+      go_version: "${GO_VERSION}"
+      golangci_version: "${GOLANGCI_VERSION}"
+      golangci_config_file: ".golangci.yml"
+  - component: gitlab.com/flarenetwork/ci-components-private/lint-go@2
+    inputs:
+      job_name_suffix: "-launcher"
+      go_project_dir: "launcher"
+      go_version: "${GO_VERSION}"
+      golangci_version: "${GOLANGCI_VERSION}"
+      golangci_config_file: ".golangci.yml"
+  - component: gitlab.com/flarenetwork/ci-components-private/test-go@2
+    inputs:
+      go_version: "${GO_VERSION}"
+      cobertura_go_version: "${GO_VERSION}"
+      go_test_command: *go_test_command
+      tags: ["flarenetwork-lg"]
+  - component: gitlab.com/flarenetwork/ci-components-private/test-go@2
+    inputs:
+      job_name_suffix: "-launcher"
+      go_project_dir: "launcher"
+      go_version: "${GO_VERSION}"
+      cobertura_go_version: "${GO_VERSION}"
+      go_test_command: *go_test_command
+
+.make:
+  stage: test
+  # the go stage of template/Dockerfile
+  image: golang:1.27.4-trixie@sha256:b54b2639de8c1bfe538ec5ffc45f29b1932235ac5f6d63c059853646677112d9
+  interruptible: true
+  variables:
+    GOPATH: $CI_PROJECT_DIR/.go
+    GOCACHE: $CI_PROJECT_DIR/.cache/go-cache
+
+go-mod-tidy:
+  extends: .make
+  cache:
+    - key:
+        files:
+          - go.sum
+          - launcher/go.sum
+        prefix: go-mod
+      paths:
+        - $GOPATH/pkg/mod
+  script:
+    - mkdir -p $GOPATH $GOCACHE
+    - go mod tidy -diff
+    - cd launcher && go mod tidy -diff
+
+.forge:
+  extends: .make
+  variables:
+    # no Foundry image has make; the version and checksum change together
+    FOUNDRY_VERSION: v1.7.1
+    FOUNDRY_SHA256: cf7e688ed0c4c48adffca788b496076e31060b67ac5afe1e43dbb5499c20c88b
+  before_script:
+    - curl -fsSLo /tmp/foundry.tar.gz "https://github.com/foundry-rs/foundry/releases/download/${FOUNDRY_VERSION}/foundry_${FOUNDRY_VERSION}_linux_amd64.tar.gz"
+    - echo "${FOUNDRY_SHA256}  /tmp/foundry.tar.gz" | sha256sum -c -
+    - tar -xzf /tmp/foundry.tar.gz -C /usr/local/bin forge
+    - forge --version
+
+lint-sol:
+  extends: .forge
+  script:
+    - make lint-sol
+
+test-sol:
+  extends: .forge
+  script:
+    - make test-sol
