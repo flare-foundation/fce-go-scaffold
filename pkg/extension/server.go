@@ -298,6 +298,9 @@ func (s *Server) run(ctx context.Context, res types.ActionResult, f func(context
 	select {
 	case o := <-ch:
 		switch {
+		// select picks at random when both are ready
+		case ctx.Err() != nil:
+			return fail(res, errDeadline)
 		case o.err != nil:
 			return fail(res, o.err)
 		case o.run == nil:
