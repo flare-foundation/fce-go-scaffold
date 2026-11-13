@@ -16,9 +16,7 @@ The starting point for building a Flare Confidential Compute (FCC) extension: an
 The separate [tooling repo](https://github.com/flare-foundation/fce-tooling) deploys and registers extensions; [docs/production.md](docs/production.md) drafts running a machine in production.
 
 > **Work in progress.**
-> v2 is being rebuilt from scratch.
 > The library, the template, three examples, the shared contract base, the reproducible image and the docs are in place, and the tooling repo deploys and registers extensions on a chain, runs test machines of them and sends them instructions and direct actions; setting up wallets with it comes later.
-> The previous version (v1) is on `main`.
 
 ## What it gives you
 

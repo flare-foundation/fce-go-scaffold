@@ -1,7 +1,7 @@
 # Glossary
 
 The terms these docs use; each term links to where it is covered.
-Flare's [FCC overview](https://dev.flare.network/fcc/overview) introduces the platform; its developer guides describe v1 of this scaffold, on `main`.
+Flare's [FCC overview](https://dev.flare.network/fcc/overview) introduces the platform; its developer guides describe an earlier scaffold.
 
 - [**action**](extension-contract.md#messages): one request tee-node passes to the extension through `POST /action`, an instruction or a direct action.
   It has an id and a submission tag, which its result echoes.

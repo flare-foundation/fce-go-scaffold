@@ -10,7 +10,6 @@ Developers fork the scaffold to build a Flare Confidential Compute extension.
 The separate [tooling repo](https://github.com/flare-foundation/fce-tooling) deploys and registers extensions; [docs/production.md](docs/production.md) drafts running a machine in production.
 
 > **Work in progress.**
-> v2 is being rebuilt from scratch.
 > So far the Go library, the template with its contract and Dockerfile, three examples (`examples/direct`, `examples/external-api`, `examples/wallets`), the shared contract base, the conformance fixture format, the launcher and the docs exist; conformance and the image checks run with `fce`, the tooling repo's CLI, which also deploys and registers extensions on a chain, runs a test machine of one, and sends it instructions and direct actions; setting up wallets comes later.
 
 ## Building an extension

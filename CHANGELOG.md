@@ -2,6 +2,4 @@
 
 ## [Unreleased]
 
-### Changed
-
-- **Breaking:** v2 is rebuilt from scratch.
+## [v0.0.1] - 2026-11-13
